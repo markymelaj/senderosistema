@@ -1,10 +1,11 @@
-# Imágenes de la web
+# Imágenes integradas
 
-La web pública no fue reescrita. Se reemplazaron los archivos referenciales existentes en `assets/` por versiones visuales nuevas manteniendo los mismos nombres usados por el HTML:
+La web pública mantiene su estructura y sus textos. Solo se reemplazaron las referencias visuales por fotografías reales en plano cerrado.
 
-- `assets/taller-referencial.svg`
-- `assets/familia-referencial.svg`
-- `assets/reinsercion-referencial.svg`
-- `assets/espacio-referencial.svg`
+## Secciones
 
-Si luego se quieren usar fotografías reales o generadas en formato JPG/WEBP, se pueden reemplazar esos archivos y actualizar las rutas en el HTML.
+- Prevención: escritura y trabajo en cuaderno.
+- Familias: manos en vínculo de cuidado.
+- Reinserción: entrevista laboral / acuerdo profesional.
+
+Las imágenes cargan desde Unsplash para evitar archivos pesados en el repositorio. Si se requiere dejar el proyecto 100% offline, reemplazar las URLs del `index.html` por archivos propios en `assets/`.
