@@ -79,4 +79,4 @@ Los perfiles clínicos y de coordinación sí pueden registrar y consultar infor
 
 ## Imagen de familias
 
-La imagen de familias fue reemplazada por una fotografía real de apoyo entre adultos. No usa mano de bebé.
+La imagen de familias queda tomada desde la URL indicada por el cliente: https://www.magnific.com/es/fotos-vectores-gratis/manos-familia
