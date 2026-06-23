@@ -7,6 +7,19 @@ function send(res, status, payload) {
   res.status(status).json(payload);
 }
 
+async function findUserByEmail(admin, email) {
+  let page = 1;
+  while (page < 20) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 100 });
+    if (error) throw error;
+    const found = data.users.find(u => (u.email || '').toLowerCase() === email.toLowerCase());
+    if (found) return found;
+    if (!data.users.length || data.users.length < 100) return null;
+    page += 1;
+  }
+  return null;
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return send(res, 405, { error: 'Método no permitido' });
 
@@ -46,16 +59,33 @@ export default async function handler(req, res) {
     return send(res, 400, { error: 'La contraseña debe tener al menos 8 caracteres' });
   }
 
-  const { data: created, error: createError } = await admin.auth.admin.createUser({
-    email,
-    password,
-    email_confirm: true,
-    user_metadata: { full_name: fullName, role_code: roleCode }
-  });
+  let user;
+  try {
+    user = await findUserByEmail(admin, email);
+  } catch (err) {
+    return send(res, 400, { error: err.message });
+  }
 
-  if (createError) return send(res, 400, { error: createError.message });
+  if (user) {
+    const { data: updated, error: updateError } = await admin.auth.admin.updateUserById(user.id, {
+      password,
+      email_confirm: true,
+      user_metadata: { full_name: fullName, role_code: roleCode }
+    });
+    if (updateError) return send(res, 400, { error: updateError.message });
+    user = updated.user;
+  } else {
+    const { data: created, error: createError } = await admin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { full_name: fullName, role_code: roleCode }
+    });
+    if (createError) return send(res, 400, { error: createError.message });
+    user = created.user;
+  }
 
-  const userId = created.user.id;
+  const userId = user.id;
   const { error: upsertError } = await admin.from('user_profiles').upsert({
     id: userId,
     email,
@@ -77,5 +107,5 @@ export default async function handler(req, res) {
     p_risk_level: 'high'
   });
 
-  return send(res, 200, { user_id: userId, email, role_code: roleCode });
+  return send(res, 200, { user_id: userId, email, role_code: roleCode, active: true });
 }

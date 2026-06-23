@@ -3,10 +3,13 @@ let sb = null;
 let session = null;
 let profile = null;
 let activeTab = 'dashboard';
-let state = {
-  patients: [], professionals: [], programs: [], appointments: [], appointmentTypes: [], rooms: [],
-  clinicalEntries: [], templates: [], documents: [], documentTypes: [], finance: [], profiles: [], audit: [], orgs: []
-};
+function blankState(){
+  return {
+    patients: [], professionals: [], programs: [], appointments: [], appointmentTypes: [], rooms: [],
+    clinicalEntries: [], templates: [], documents: [], documentTypes: [], finance: [], profiles: [], audit: [], orgs: []
+  };
+}
+let state = blankState();
 
 const tabs = [
   ['dashboard','Inicio'], ['patients','Pacientes'], ['professionals','Profesionales'], ['appointments','Turnos'],
@@ -19,6 +22,14 @@ const roleOptions = [
   ['psychologist','Psicología'], ['social_worker','Asistente social'], ['therapeutic_operator','Asistente terapéutico'],
   ['professional','Profesional'], ['admission','Admisión'], ['finance','Administración'], ['auditor','Auditoría'],
   ['patient','Paciente'], ['family','Familiar autorizado']
+];
+
+
+const demoCredentials = [
+  ['Dirección', 'direccion@senderos.demo', 'Senderos2026!'],
+  ['Profesional', 'profesional@senderos.demo', 'Senderos2026!'],
+  ['Paciente', 'paciente@senderos.demo', 'Senderos2026!'],
+  ['Auditoría', 'auditoria@senderos.demo', 'Senderos2026!']
 ];
 
 const statusLabel = {
@@ -39,7 +50,7 @@ async function init(){
     sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth:{ persistSession:true, autoRefreshToken:true }});
     const { data } = await sb.auth.getSession();
     session = data.session;
-    sb.auth.onAuthStateChange((_event, newSession)=>{ session = newSession; render(); if(session) loadAll(); });
+    sb.auth.onAuthStateChange(async (_event, newSession)=>{ session = newSession; if(session) await loadAll(); else { profile=null; state=blankState(); } render(); });
     if(session) await loadAll();
     render();
   }catch(err){
@@ -48,23 +59,46 @@ async function init(){
 }
 
 function render(){
-  if(!session){ app.innerHTML = loginShell(); bindLogin(); return; }
+  if(!session){ profile=null; state=blankState(); app.innerHTML = loginShell(); bindLogin(); return; }
   if(!profile){ app.innerHTML = shell(`<div class="panel"><h2>Activar primer administrador</h2><p class="muted">El usuario inició sesión, pero todavía no tiene perfil interno.</p><button class="btn primary" data-action="bootstrap">Crear primer administrador</button></div>`); bindBase(); return; }
+  visibleTabs();
   app.innerHTML = shell(renderTab());
   bindBase();
   bindTab();
 }
 
 function loginShell(extra=''){
-  return `<main class="login-wrap"><section class="login-card"><img src="../assets/logo-senderos.png" alt="Senderos de Libertad"><h1>Sistema interno</h1><p>Acceso para dirección, admisión, profesionales y administración.</p>${extra}<form id="loginForm" class="form"><label class="field">Email<input name="email" type="email" required autocomplete="email"></label><label class="field">Contraseña<input name="password" type="password" required autocomplete="current-password"></label><button class="btn primary" type="submit">Ingresar</button></form></section></main>`;
+  return `<main class="login-wrap"><section class="login-card"><img src="../assets/logo-senderos.png" alt="Senderos de Libertad"><h1>Sistema interno</h1><p>Acceso para dirección, profesionales y administración.</p>${extra}<form id="loginForm" class="form"><label class="field">Email<input name="email" type="email" required autocomplete="email"></label><label class="field">Contraseña<input name="password" type="password" required autocomplete="current-password"></label><button class="btn primary" type="submit">Ingresar</button></form><div class="demo-box"><button class="btn secondary full" type="button" data-prepare-demo>Preparar accesos demo</button><p>Ingresos rápidos para mostrar el sistema:</p><div class="demo-grid">${demoCredentials.map(([label,email,password])=>`<button type="button" data-demo-login data-email="${email}" data-password="${password}"><strong>${label}</strong><span>${email}</span></button>`).join('')}</div></div><a class="back-link" href="/">Volver a la web</a></section></main>`;
 }
 
 function shell(content){
-  return `<div class="layout"><aside class="sidebar"><div class="brand"><img src="../assets/logo-senderos.png" alt=""><div><strong>Senderos de Libertad</strong><small>${profile ? roleName(profile.role_code) : 'Sin perfil'}</small></div></div><nav class="nav">${tabs.map(([id,label])=>`<button data-tab="${id}" class="${activeTab===id?'active':''}">${label}</button>`).join('')}</nav><button class="logout" data-action="logout">Cerrar sesión</button></aside><main class="main"><header class="topbar"><div><p class="eyebrow">Sistema clínico administrativo</p><h1>${tabTitle(activeTab)}</h1></div><div class="top-actions"><button class="btn secondary" data-action="refresh">Actualizar</button></div></header><div id="messages"></div>${content}</main></div>`;
+  return `<div class="layout"><aside class="sidebar"><div class="brand"><img src="../assets/logo-senderos.png" alt=""><div><strong>Senderos de Libertad</strong><small>${profile ? roleName(profile.role_code) : 'Sin perfil'}</small></div></div><nav class="nav">${visibleTabs().map(([id,label])=>`<button data-tab="${id}" class="${activeTab===id?'active':''}">${label}</button>`).join('')}</nav><button class="logout" data-action="logout">Cerrar sesión</button></aside><main class="main"><header class="topbar"><div><p class="eyebrow">Sistema clínico administrativo</p><h1>${tabTitle(activeTab)}</h1></div><div class="top-actions"><button class="btn secondary" data-action="refresh">Actualizar</button></div></header><div id="messages"></div>${content}</main></div>`;
 }
 
 function tabTitle(id){ return (tabs.find(t=>t[0]===id)||[])[1] || 'Sistema'; }
 function roleName(code){ return (roleOptions.find(r=>r[0]===code)||[])[1] || code || 'Usuario'; }
+function visibleTabs(){
+  const role = profile?.role_code || '';
+  const allowed = {
+    auditor: ['dashboard','patients','professionals','appointments','programs','audit'],
+    finance: ['dashboard','patients','appointments','finance'],
+    admission: ['dashboard','patients','professionals','appointments','documents'],
+    therapeutic_operator: ['dashboard','patients','appointments','clinical','programs'],
+    social_worker: ['dashboard','patients','appointments','clinical','documents','programs'],
+    psychologist: ['dashboard','patients','appointments','clinical','documents','programs'],
+    medical: ['dashboard','patients','appointments','clinical','documents','programs'],
+    professional: ['dashboard','patients','appointments','clinical','documents','programs'],
+    patient: ['dashboard'],
+    family: ['dashboard']
+  };
+  const ids = allowed[role] || tabs.map(t=>t[0]);
+  if(!ids.includes(activeTab)) activeTab = ids[0] || 'dashboard';
+  return tabs.filter(t=>ids.includes(t[0]));
+}
+
+function isAuditor(){ return profile?.role_code === 'auditor'; }
+function readOnlyNotice(){ return '<p class="muted">Vista de auditoría: permite control operativo y trazabilidad. La información clínica confidencial y documentos sensibles no están disponibles para este perfil.</p>'; }
+
 function msg(text,type='ok'){ const el=document.getElementById('messages'); if(el) el.innerHTML=`<div class="notice ${type}">${escapeHtml(text)}</div>`; }
 function escapeHtml(s=''){ return String(s).replace(/[&<>'"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;'}[c])); }
 function fmt(v){ if(!v) return '-'; return new Intl.DateTimeFormat('es-AR',{dateStyle:'short',timeStyle:'short'}).format(new Date(v)); }
@@ -74,9 +108,28 @@ function bindLogin(){
   document.getElementById('loginForm')?.addEventListener('submit', async e=>{
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    const { error } = await sb.auth.signInWithPassword({ email: fd.get('email'), password: fd.get('password') });
-    if(error) app.innerHTML = loginShell(`<div class="notice error">${escapeHtml(error.message)}</div>`), bindLogin();
+    await loginWith(String(fd.get('email')), String(fd.get('password')));
   });
+  document.querySelectorAll('[data-demo-login]').forEach(btn=>btn.addEventListener('click', async()=>{
+    await loginWith(btn.dataset.email, btn.dataset.password);
+  }));
+  document.querySelector('[data-prepare-demo]')?.addEventListener('click', async()=>{
+    const btn=document.querySelector('[data-prepare-demo]');
+    btn.disabled=true; btn.textContent='Preparando accesos...';
+    try{
+      const res=await fetch('/api/init-demo-users',{method:'POST'});
+      const data=await res.json();
+      if(!res.ok) throw new Error(data.error || 'No se pudieron preparar los accesos');
+      app.innerHTML = loginShell(`<div class="notice ok">Accesos demo listos. Podés ingresar con los botones rápidos.</div>`);
+    }catch(err){
+      app.innerHTML = loginShell(`<div class="notice error">${escapeHtml(err.message)}</div>`);
+    }
+    bindLogin();
+  });
+}
+async function loginWith(email,password){
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  if(error) app.innerHTML = loginShell(`<div class="notice error">${escapeHtml(error.message)}</div>`), bindLogin();
 }
 
 function bindBase(){
@@ -92,6 +145,7 @@ function bindBase(){
 async function loadAll(){
   const prof = await sb.from('user_profiles').select('*').eq('id', session.user.id).maybeSingle();
   profile = prof.data || null;
+  state = blankState();
   if(!profile) return;
   const queries = await Promise.all([
     sb.from('patients').select('*').is('deleted_at', null).order('created_at',{ascending:false}).limit(500),
@@ -131,19 +185,28 @@ function dashboard(){
   const next = state.appointments.filter(a=>new Date(a.start_at)>new Date()).length;
   const docs = state.documents.filter(d=>d.status!=='validado').length;
   const demo = state.patients.filter(p=>p.is_demo).length;
-  return `<div class="grid kpis"><div class="kpi"><span>Pacientes activos</span><strong>${active}</strong></div><div class="kpi"><span>Turnos próximos</span><strong>${next}</strong></div><div class="kpi"><span>Documentos pendientes</span><strong>${docs}</strong></div><div class="kpi"><span>Pacientes de prueba</span><strong>${demo}</strong></div></div><div class="grid two" style="margin-top:16px"><section class="panel"><h2>Agenda próxima</h2>${table(['Fecha','Paciente','Profesional','Estado'], state.appointments.slice(0,8).map(a=>[fmt(a.start_at), patientName(a.patients), a.professionals?.full_name||'-', tag(a.status)]))}</section><section class="panel"><h2>Pacientes recientes</h2>${table(['Paciente','DNI','Estado','Riesgo'], state.patients.slice(0,8).map(p=>[fullName(p), p.document_number||'-', statusLabel[p.admission_status]||p.admission_status, riskTag(p.risk_level)]))}</section></div><section class="panel" style="margin-top:16px"><h2>Acciones rápidas</h2><div class="top-actions"><button class="btn primary" data-tab-jump="patients">Nuevo paciente</button><button class="btn primary" data-tab-jump="professionals">Nuevo profesional</button><button class="btn secondary" data-tab-jump="appointments">Agendar turno</button><button class="btn secondary" data-tab-jump="access">Crear acceso</button></div></section>`;
+  const actions = isAuditor() ? `<section class="panel" style="margin-top:16px"><h2>Auditoría operativa</h2>${readOnlyNotice()}</section>` : `<section class="panel" style="margin-top:16px"><h2>Acciones rápidas</h2><div class="top-actions"><button class="btn primary" data-tab-jump="patients">Nuevo paciente</button><button class="btn primary" data-tab-jump="professionals">Nuevo profesional</button><button class="btn secondary" data-tab-jump="appointments">Agendar turno</button><button class="btn secondary" data-tab-jump="access">Crear acceso</button></div></section>`;
+  return `<div class="grid kpis"><div class="kpi"><span>Pacientes activos</span><strong>${active}</strong></div><div class="kpi"><span>Turnos próximos</span><strong>${next}</strong></div><div class="kpi"><span>Documentos pendientes</span><strong>${docs}</strong></div><div class="kpi"><span>Pacientes de prueba</span><strong>${demo}</strong></div></div><div class="grid two" style="margin-top:16px"><section class="panel"><h2>Agenda próxima</h2>${table(['Fecha','Paciente','Profesional','Estado'], state.appointments.slice(0,8).map(a=>[fmt(a.start_at), patientName(a.patients), a.professionals?.full_name||'-', tag(a.status)]))}</section><section class="panel"><h2>Pacientes recientes</h2>${table(['Paciente','DNI','Estado','Riesgo'], state.patients.slice(0,8).map(p=>[fullName(p), p.document_number||'-', statusLabel[p.admission_status]||p.admission_status, riskTag(p.risk_level)]))}</section></div>${actions}`;
 }
 
 function patientsTab(){
-  return `<div class="grid two"><section class="panel"><h2>Alta de paciente</h2><form id="patientForm" class="form two-cols">${field('first_name','Nombre','text',true)}${field('last_name','Apellido','text',true)}${field('document_number','DNI','text',false)}${field('birth_date','Fecha de nacimiento','date',false)}${field('phone','Teléfono','text',false)}${field('email','Email','email',false)}<label class="field">Estado<select name="admission_status"><option value="preingreso">Preingreso</option><option value="evaluacion">Evaluación</option><option value="admitido">Admitido</option><option value="en_tratamiento">En tratamiento</option><option value="seguimiento">Seguimiento</option></select></label><label class="field">Riesgo<select name="risk_level"><option value="bajo">Bajo</option><option value="medio">Medio</option><option value="alto">Alto</option></select></label>${field('emergency_contact_name','Familiar / referente','text',false)}${field('emergency_contact_phone','Teléfono referente','text',false)}<label class="field full">Programa inicial<select name="program_id"><option value="">Sin asignar</option>${state.programs.map(p=>`<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')}</select></label><label class="field full">Profesional responsable<select name="responsible_professional_id"><option value="">Sin asignar</option>${state.professionals.map(p=>`<option value="${p.id}">${escapeHtml(p.full_name)} · ${escapeHtml(p.role_title)}</option>`).join('')}</select></label><label class="field inline full"><input type="checkbox" name="create_access"> Crear acceso al portal ahora</label>${field('access_email','Email de acceso','email',false)}${field('access_password','Contraseña inicial','password',false)}<button class="btn primary full" type="submit">Guardar paciente</button></form></section><section class="panel"><h2>Pacientes</h2>${table(['Paciente','DNI','Teléfono','Estado','Riesgo','Acción'], state.patients.map(p=>[fullName(p), p.document_number||'-', p.phone||'-', statusLabel[p.admission_status]||p.admission_status, riskTag(p.risk_level), `<button class="btn small secondary" data-create-access="patient" data-id="${p.id}" data-name="${escapeHtml(fullName(p))}" data-email="${escapeHtml(p.email||'')}">Acceso</button>`]))}</section></div>`;
+  const rows = state.patients.map(p=>[fullName(p), p.document_number||'-', p.phone||'-', statusLabel[p.admission_status]||p.admission_status, riskTag(p.risk_level), isAuditor()?'-':`<button class="btn small secondary" data-create-access="patient" data-id="${p.id}" data-name="${escapeHtml(fullName(p))}" data-email="${escapeHtml(p.email||'')}">Acceso</button>`]);
+  const list = `<section class="panel"><h2>Pacientes</h2>${isAuditor()?readOnlyNotice():''}${table(['Paciente','DNI','Teléfono','Estado','Riesgo','Acción'], rows)}</section>`;
+  if(isAuditor()) return list;
+  return `<div class="grid two"><section class="panel"><h2>Alta de paciente</h2><form id="patientForm" class="form two-cols">${field('first_name','Nombre','text',true)}${field('last_name','Apellido','text',true)}${field('document_number','DNI','text',false)}${field('birth_date','Fecha de nacimiento','date',false)}${field('phone','Teléfono','text',false)}${field('email','Email','email',false)}<label class="field">Estado<select name="admission_status"><option value="preingreso">Preingreso</option><option value="evaluacion">Evaluación</option><option value="admitido">Admitido</option><option value="en_tratamiento">En tratamiento</option><option value="seguimiento">Seguimiento</option></select></label><label class="field">Riesgo<select name="risk_level"><option value="bajo">Bajo</option><option value="medio">Medio</option><option value="alto">Alto</option></select></label>${field('emergency_contact_name','Familiar / referente','text',false)}${field('emergency_contact_phone','Teléfono referente','text',false)}<label class="field full">Programa inicial<select name="program_id"><option value="">Sin asignar</option>${state.programs.map(p=>`<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')}</select></label><label class="field full">Profesional responsable<select name="responsible_professional_id"><option value="">Sin asignar</option>${state.professionals.map(p=>`<option value="${p.id}">${escapeHtml(p.full_name)} · ${escapeHtml(p.role_title)}</option>`).join('')}</select></label><label class="field inline full"><input type="checkbox" name="create_access"> Crear acceso al portal ahora</label>${field('access_email','Email de acceso','email',false)}${field('access_password','Contraseña inicial','password',false)}<button class="btn primary full" type="submit">Guardar paciente</button></form></section>${list}</div>`;
 }
 
 function professionalsTab(){
-  return `<div class="grid two"><section class="panel"><h2>Alta de profesional</h2><form id="professionalForm" class="form two-cols">${field('full_name','Nombre completo','text',true)}${field('role_title','Cargo','text',true)}${field('specialty','Especialidad','text',false)}${field('license_number','Matrícula','text',false)}${field('email','Email','email',false)}${field('phone','Teléfono','text',false)}<label class="field full">Descripción<textarea name="bio" rows="3"></textarea></label><label class="field inline full"><input type="checkbox" name="create_access"> Crear acceso al sistema ahora</label><label class="field">Rol de acceso<select name="role_code">${roleOptions.filter(r=>!['patient','family'].includes(r[0])).map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></label>${field('access_password','Contraseña inicial','password',false)}<button class="btn primary full" type="submit">Guardar profesional</button></form></section><section class="panel"><h2>Profesionales</h2>${table(['Nombre','Cargo','Especialidad','Email','Acción'], state.professionals.map(p=>[p.full_name, p.role_title, p.specialty||'-', p.email||'-', `<button class="btn small secondary" data-create-access="professional" data-id="${p.id}" data-name="${escapeHtml(p.full_name)}" data-email="${escapeHtml(p.email||'')}">Acceso</button>`]))}</section></div>`;
+  const rows = state.professionals.map(p=>[p.full_name, p.role_title, p.specialty||'-', p.email||'-', isAuditor()?'-':`<button class="btn small secondary" data-create-access="professional" data-id="${p.id}" data-name="${escapeHtml(p.full_name)}" data-email="${escapeHtml(p.email||'')}">Acceso</button>`]);
+  const list = `<section class="panel"><h2>Profesionales</h2>${isAuditor()?readOnlyNotice():''}${table(['Nombre','Cargo','Especialidad','Email','Acción'], rows)}</section>`;
+  if(isAuditor()) return list;
+  return `<div class="grid two"><section class="panel"><h2>Alta de profesional</h2><form id="professionalForm" class="form two-cols">${field('full_name','Nombre completo','text',true)}${field('role_title','Cargo','text',true)}${field('specialty','Especialidad','text',false)}${field('license_number','Matrícula','text',false)}${field('email','Email','email',false)}${field('phone','Teléfono','text',false)}<label class="field full">Descripción<textarea name="bio" rows="3"></textarea></label><label class="field inline full"><input type="checkbox" name="create_access"> Crear acceso al sistema ahora</label><label class="field">Rol de acceso<select name="role_code">${roleOptions.filter(r=>!['patient','family'].includes(r[0])).map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></label>${field('access_password','Contraseña inicial','password',false)}<button class="btn primary full" type="submit">Guardar profesional</button></form></section>${list}</div>`;
 }
 
 function appointmentsTab(){
-  return `<div class="grid two"><section class="panel"><h2>Nuevo turno</h2><form id="appointmentForm" class="form two-cols"><label class="field full">Paciente<select name="patient_id" required>${opts(state.patients, fullName)}</select></label><label class="field full">Profesional<select name="professional_id" required>${opts(state.professionals, p=>`${p.full_name} · ${p.role_title}`)}</select></label><label class="field">Tipo<select name="appointment_type_id" required>${opts(state.appointmentTypes, t=>t.name)}</select></label><label class="field">Programa<select name="program_id"><option value="">Sin programa</option>${opts(state.programs, p=>p.name)}</select></label><label class="field">Sala<select name="room_id"><option value="">Sin sala</option>${opts(state.rooms, r=>r.name)}</select></label><label class="field">Modalidad<select name="modality"><option value="presencial">Presencial</option><option value="online">Online</option></select></label>${field('start_at','Inicio','datetime-local',true)}${field('end_at','Fin','datetime-local',true)}<label class="field full">Motivo<input name="reason"></label><button class="btn primary full" type="submit">Agendar turno</button></form></section><section class="panel"><h2>Agenda</h2>${table(['Fecha','Paciente','Profesional','Tipo','Estado'], state.appointments.map(a=>[fmt(a.start_at), patientName(a.patients), a.professionals?.full_name||'-', a.appointment_types?.name||'-', tag(a.status)]))}</section></div>`;
+  const list = `<section class="panel"><h2>Agenda</h2>${isAuditor()?readOnlyNotice():''}${table(['Fecha','Paciente','Profesional','Tipo','Estado'], state.appointments.map(a=>[fmt(a.start_at), patientName(a.patients), a.professionals?.full_name||'-', a.appointment_types?.name||'-', tag(a.status)]))}</section>`;
+  if(isAuditor()) return list;
+  return `<div class="grid two"><section class="panel"><h2>Nuevo turno</h2><form id="appointmentForm" class="form two-cols"><label class="field full">Paciente<select name="patient_id" required>${opts(state.patients, fullName)}</select></label><label class="field full">Profesional<select name="professional_id" required>${opts(state.professionals, p=>`${p.full_name} · ${p.role_title}`)}</select></label><label class="field">Tipo<select name="appointment_type_id" required>${opts(state.appointmentTypes, t=>t.name)}</select></label><label class="field">Programa<select name="program_id"><option value="">Sin programa</option>${opts(state.programs, p=>p.name)}</select></label><label class="field">Sala<select name="room_id"><option value="">Sin sala</option>${opts(state.rooms, r=>r.name)}</select></label><label class="field">Modalidad<select name="modality"><option value="presencial">Presencial</option><option value="online">Online</option></select></label>${field('start_at','Inicio','datetime-local',true)}${field('end_at','Fin','datetime-local',true)}<label class="field full">Motivo<input name="reason"></label><button class="btn primary full" type="submit">Agendar turno</button></form></section>${list}</div>`;
 }
 
 function clinicalTab(){
@@ -155,7 +218,9 @@ function documentsTab(){
 }
 
 function programsTab(){
-  return `<div class="grid two"><section class="panel"><h2>Nuevo programa</h2><form id="programForm" class="form">${field('name','Nombre','text',true)}<label class="field">Duración estimada, semanas<input name="duration_weeks" type="number" min="1"></label><label class="field">Descripción<textarea name="description" rows="5"></textarea></label><button class="btn primary" type="submit">Guardar programa</button></form></section><section class="panel"><h2>Programas</h2>${table(['Programa','Duración','Estado','Descripción'], state.programs.map(p=>[p.name, p.duration_weeks?`${p.duration_weeks} semanas`:'-', p.active?'Activo':'Inactivo', p.description||'-']))}</section></div>`;
+  const list = `<section class="panel"><h2>Programas</h2>${isAuditor()?readOnlyNotice():''}${table(['Programa','Duración','Estado','Descripción'], state.programs.map(p=>[p.name, p.duration_weeks?`${p.duration_weeks} semanas`:'-', p.active?'Activo':'Inactivo', p.description||'-']))}</section>`;
+  if(isAuditor()) return list;
+  return `<div class="grid two"><section class="panel"><h2>Nuevo programa</h2><form id="programForm" class="form">${field('name','Nombre','text',true)}<label class="field">Duración estimada, semanas<input name="duration_weeks" type="number" min="1"></label><label class="field">Descripción<textarea name="description" rows="5"></textarea></label><button class="btn primary" type="submit">Guardar programa</button></form></section>${list}</div>`;
 }
 
 function accessTab(){

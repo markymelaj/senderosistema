@@ -1,63 +1,82 @@
-# Sistema interno Senderos de Libertad
+# Senderos de Libertad - web + sistema
 
-La web pública original se conserva en la raíz del proyecto.
+## Rutas
 
-Rutas agregadas:
+- Web pública: `/`
+- Sistema interno: `/sistema/`
+- Portal de pacientes/familiares: `/portal/`
 
-- `/sistema` panel interno.
-- `/portal` portal de pacientes y familiares.
-- `/api/public-config` configuración pública de Supabase.
-- `/api/create-user` creación segura de credenciales desde el panel.
-- `/api/update-user-access` activación, bloqueo y cambio de contraseña.
-
-## Instalación Supabase
-
-Ejecutar en SQL Editor:
-
-1. `supabase/sql/001_schema.sql`
-2. `supabase/sql/002_seed_demo.sql`
-
-Para eliminar los datos de prueba:
-
-3. `supabase/sql/003_cleanup_demo.sql`
+La web pública mantiene su contenido institucional. Desde el menú y el inicio se accede al portal y al sistema interno.
 
 ## Variables en Vercel
 
 ```env
-SUPABASE_URL=https://TU-PROYECTO.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=TU_SERVICE_ROLE_KEY
 NEXT_PUBLIC_SUPABASE_URL=https://TU-PROYECTO.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=TU_ANON_KEY
+SUPABASE_URL=https://TU-PROYECTO.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=TU_SERVICE_ROLE_KEY
+ENABLE_DEMO_SETUP=true
 ```
 
-`SUPABASE_SERVICE_ROLE_KEY` se usa solo en funciones de servidor para crear usuarios. No debe ir en archivos públicos.
+`SUPABASE_SERVICE_ROLE_KEY` se usa solo en funciones server-side para crear credenciales desde el panel y preparar accesos demo.
 
-## Primer administrador
+## Supabase SQL Editor
 
-1. Crear un usuario desde Supabase Authentication.
-2. Entrar a `/sistema`.
-3. Iniciar sesión.
-4. Presionar el botón para crear el primer administrador.
+Ejecutar en este orden:
 
-## Alta de pacientes
+1. `supabase/sql/001_schema.sql`
+2. `supabase/sql/002_seed_demo.sql`
 
-Desde `/sistema > Pacientes`:
+Para borrar los datos de prueba antes de iniciar la operación real:
 
-- cargar la ficha;
+3. `supabase/sql/003_cleanup_demo.sql`
+
+## Accesos demo
+
+Después de ejecutar los SQL y desplegar en Vercel:
+
+1. Entrar a `/sistema/`.
+2. Presionar `Preparar accesos demo`.
+3. Ingresar con uno de estos usuarios:
+
+| Perfil | Email | Contraseña |
+|---|---|---|
+| Dirección | direccion@senderos.demo | Senderos2026! |
+| Profesional | profesional@senderos.demo | Senderos2026! |
+| Paciente | paciente@senderos.demo | Senderos2026! |
+| Auditoría | auditoria@senderos.demo | Senderos2026! |
+
+El mismo botón está disponible en `/portal/` para facilitar la presentación.
+
+## Qué datos demo quedan cargados
+
+- Programas: prevención, orientación/tratamiento, acompañamiento familiar, reinserción social/laboral y programa online.
+- Profesionales: psiquiatría, psicología, trabajo social, asistencia terapéutica, nutrición, musicoterapia, educación física, asesoría legal y voluntariado.
+- Pacientes ficticios con turnos, programas, documentos, una solicitud de portal y movimientos administrativos de prueba.
+
+## Operación desde el sistema
+
+Desde `/sistema/` se puede:
+
+- dar de alta pacientes;
 - asignar programa inicial;
 - asignar profesional responsable;
-- opcionalmente crear acceso al portal en el mismo formulario.
+- crear acceso al portal;
+- dar de alta profesionales;
+- crear acceso al sistema para profesionales;
+- agendar turnos;
+- registrar evolución clínica;
+- cargar documentos;
+- liberar documentos al portal;
+- registrar movimientos financieros;
+- revisar auditoría.
 
-## Alta de profesionales
+## Auditoría sin historia clínica confidencial
 
-Desde `/sistema > Profesionales`:
+El usuario de auditoría puede revisar actividad, pacientes, agenda, profesionales y programas. No tiene acceso al módulo de historia clínica ni a documentos privados clínicos.
 
-- cargar ficha profesional;
-- indicar cargo, especialidad y matrícula;
-- opcionalmente crear acceso interno con rol y contraseña inicial.
+Los perfiles clínicos y de coordinación sí pueden registrar y consultar información clínica según permisos.
 
-## Portal
+## Imagen de familias
 
-Los pacientes y familiares entran por `/portal`.
-
-Solo ven turnos, solicitudes y documentos liberados desde el sistema interno.
+La imagen de familias fue reemplazada por una fotografía real de apoyo entre adultos. No usa mano de bebé.

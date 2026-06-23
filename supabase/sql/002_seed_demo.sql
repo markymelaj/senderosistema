@@ -57,7 +57,9 @@ select * from (values
 ('Acompañamiento familiar',60,true,true),
 ('Seguimiento online',45,true,true),
 ('Actividad de prevención',90,false,true),
-('Gestión administrativa',30,false,true)
+('Gestión administrativa',30,false,true),
+('Asesoría legal',45,false,true),
+('Entrevista de voluntariado',45,false,true)
 ) v(name, default_minutes, requires_clinical_entry, is_demo)
 where not exists(select 1 from public.appointment_types a where a.name=v.name);
 
@@ -94,7 +96,9 @@ from (values
 ('Carlos Medina','Asistente terapéutico','Acompañamiento cotidiano y talleres',null,'carlos.medina@senderos.demo','+54 9 261 000 1004','Perfil de prueba.'),
 ('Sofía Herrera','Nutricionista','Hábitos, alimentación y bienestar','MP-DEMO-004','sofia.herrera@senderos.demo','+54 9 261 000 1005','Perfil de prueba.'),
 ('Paula Torres','Musicoterapeuta','Espacios expresivos y grupales','MP-DEMO-005','paula.torres@senderos.demo','+54 9 261 000 1006','Perfil de prueba.'),
-('Diego Salvatierra','Educación física','Rutina, cuerpo y bienestar',null,'diego.salvatierra@senderos.demo','+54 9 261 000 1007','Perfil de prueba.')
+('Diego Salvatierra','Educación física','Rutina, cuerpo y bienestar',null,'diego.salvatierra@senderos.demo','+54 9 261 000 1007','Perfil de prueba.'),
+('Dra. Laura Benegas','Asesoría legal','Orientación institucional y derivaciones legales','MP-DEMO-006','laura.benegas@senderos.demo','+54 9 261 000 1008','Perfil de prueba.'),
+('Equipo de voluntariado','Voluntariado','Apoyo comunitario, talleres y acompañamiento transversal',null,'voluntariado@senderos.demo','+54 9 261 000 1009','Perfil de prueba.')
 ) v(full_name, role_title, specialty, license_number, email, phone, bio)
 where not exists(select 1 from public.professionals p where p.email=v.email);
 
@@ -158,6 +162,20 @@ select p.id, dt.id, 'Consentimiento informado', null, 'application/pdf', 0, 'pri
 from public.patients p
 join public.document_types dt on dt.name='Consentimiento informado'
 where p.is_demo=true and not exists(select 1 from public.patient_documents d where d.patient_id=p.id and d.title='Consentimiento informado');
+
+insert into public.portal_document_releases(document_id, patient_id, released_to, active)
+select d.id, d.patient_id, 'patient', true
+from public.patient_documents d
+join public.patients p on p.id=d.patient_id
+where p.is_demo=true
+  and d.title='Consentimiento informado'
+  and not exists(select 1 from public.portal_document_releases r where r.document_id=d.id and r.patient_id=d.patient_id);
+
+insert into public.portal_requests(patient_id, request_type, subject, message, status, is_demo)
+select p.id, 'turno', 'Consulta por próximo turno', 'Solicitud de prueba visible desde el portal del paciente.', 'pendiente', true
+from public.patients p
+where p.document_number='99000101'
+  and not exists(select 1 from public.portal_requests r where r.patient_id=p.id and r.is_demo=true);
 
 insert into public.financial_movements(org_id, patient_id, movement_type, category, description, amount, currency, method, status, movement_date, is_demo)
 select (select id from public.organizations where cuit='30-71928002-8'), p.id, 'ingreso', 'aporte familiar', 'Aporte de prueba para visualizar el módulo financiero.', 35000, 'ARS', 'transferencia', 'registrado', current_date - interval '3 days', true

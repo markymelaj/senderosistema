@@ -480,6 +480,56 @@ as $$
   select public.current_role_code() in ('super_admin','direction','clinical_coordination');
 $$;
 
+create or replace function public.can_access_clinical_data()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select public.current_role_code() in ('super_admin','direction','clinical_coordination','professional','medical','psychologist','social_worker','therapeutic_operator');
+$$;
+
+create or replace function public.can_manage_documents()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select public.current_role_code() in ('super_admin','direction','clinical_coordination','professional','medical','psychologist','social_worker','therapeutic_operator','admission');
+$$;
+
+create or replace function public.can_write_operational_data()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select public.current_role_code() in ('super_admin','direction','clinical_coordination','admission');
+$$;
+
+create or replace function public.can_manage_appointments()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select public.current_role_code() in ('super_admin','direction','clinical_coordination','admission','professional','medical','psychologist','social_worker','therapeutic_operator');
+$$;
+
+create or replace function public.can_manage_catalogs()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select public.current_role_code() in ('super_admin','direction','clinical_coordination');
+$$;
+
 create or replace function public.add_audit_log(
   p_action text,
   p_entity_table text default null,
@@ -594,8 +644,12 @@ insert into public.role_permissions(role_code, permission_code) values
 ('therapeutic_operator','patients.read'),('therapeutic_operator','clinical.read'),('therapeutic_operator','clinical.write'),('therapeutic_operator','appointments.manage'),
 ('admission','patients.read'),('admission','patients.write'),('admission','appointments.manage'),('admission','documents.manage'),
 ('finance','patients.read'),('finance','finance.manage'),('finance','reports.read'),
-('auditor','patients.read'),('auditor','clinical.read'),('auditor','reports.read'),('auditor','audit.read')
+('auditor','patients.read'),('auditor','reports.read'),('auditor','audit.read')
 on conflict do nothing;
+
+delete from public.role_permissions
+where role_code in ('auditor','finance','admission')
+  and permission_code like 'clinical.%';
 
 -- -----------------------------
 -- Row Level Security
@@ -649,44 +703,85 @@ create policy "auth read role_permissions" on public.role_permissions for select
 
 -- Profiles
 create policy "profiles self read" on public.user_profiles for select to authenticated using (id = auth.uid() or public.is_admin_user() or public.current_role_code()='auditor');
-create policy "profiles self insert only first profile" on public.user_profiles for insert to authenticated with check (id = auth.uid());
-create policy "profiles admin update" on public.user_profiles for update to authenticated using (public.is_admin_user() or id = auth.uid()) with check (public.is_admin_user() or id = auth.uid());
+create policy "profiles admin insert" on public.user_profiles for insert to authenticated with check (public.is_admin_user());
+create policy "profiles admin update" on public.user_profiles for update to authenticated using (public.is_admin_user()) with check (public.is_admin_user());
+create policy "profiles admin delete" on public.user_profiles for delete to authenticated using (public.is_admin_user());
 
--- Internal generic policies
-create policy "internal patients all" on public.patients for all to authenticated using (public.is_internal_user()) with check (public.is_internal_user());
+-- Operational policies. Auditors can read operational records and audit logs, but cannot write or view clinical/documents/finance.
+create policy "internal patients read" on public.patients for select to authenticated using (public.is_internal_user());
+create policy "patients insert restricted" on public.patients for insert to authenticated with check (public.can_write_operational_data());
+create policy "patients update restricted" on public.patients for update to authenticated using (public.can_write_operational_data()) with check (public.can_write_operational_data());
+create policy "patients delete restricted" on public.patients for delete to authenticated using (public.can_write_operational_data());
 create policy "portal own patient read" on public.patients for select to authenticated using (id = (select patient_id from public.user_profiles where id = auth.uid()));
 
-create policy "internal patient_contacts all" on public.patient_contacts for all to authenticated using (public.is_internal_user()) with check (public.is_internal_user());
+create policy "internal patient_contacts read" on public.patient_contacts for select to authenticated using (public.is_internal_user());
+create policy "patient_contacts insert restricted" on public.patient_contacts for insert to authenticated with check (public.can_write_operational_data());
+create policy "patient_contacts update restricted" on public.patient_contacts for update to authenticated using (public.can_write_operational_data()) with check (public.can_write_operational_data());
+create policy "patient_contacts delete restricted" on public.patient_contacts for delete to authenticated using (public.can_write_operational_data());
 create policy "portal own contacts read" on public.patient_contacts for select to authenticated using (patient_id = (select patient_id from public.user_profiles where id = auth.uid()));
 
-create policy "internal status history all" on public.patient_status_history for all to authenticated using (public.is_internal_user()) with check (public.is_internal_user());
-create policy "internal professionals all" on public.professionals for all to authenticated using (public.is_internal_user()) with check (public.is_internal_user());
+create policy "internal status history read" on public.patient_status_history for select to authenticated using (public.is_internal_user());
+create policy "status history insert restricted" on public.patient_status_history for insert to authenticated with check (public.can_write_operational_data());
+create policy "status history update restricted" on public.patient_status_history for update to authenticated using (public.can_write_operational_data()) with check (public.can_write_operational_data());
+create policy "status history delete restricted" on public.patient_status_history for delete to authenticated using (public.can_write_operational_data());
+
+create policy "internal professionals read" on public.professionals for select to authenticated using (public.is_internal_user());
+create policy "professionals insert restricted" on public.professionals for insert to authenticated with check (public.can_manage_catalogs());
+create policy "professionals update restricted" on public.professionals for update to authenticated using (public.can_manage_catalogs()) with check (public.can_manage_catalogs());
+create policy "professionals delete restricted" on public.professionals for delete to authenticated using (public.can_manage_catalogs());
 create policy "portal professionals read" on public.professionals for select to authenticated using (true);
 
-create policy "internal programs all" on public.programs for all to authenticated using (public.is_internal_user()) with check (public.is_internal_user());
+create policy "internal programs read" on public.programs for select to authenticated using (public.is_internal_user());
+create policy "programs insert restricted" on public.programs for insert to authenticated with check (public.can_manage_catalogs());
+create policy "programs update restricted" on public.programs for update to authenticated using (public.can_manage_catalogs()) with check (public.can_manage_catalogs());
+create policy "programs delete restricted" on public.programs for delete to authenticated using (public.can_manage_catalogs());
 create policy "portal programs read" on public.programs for select to authenticated using (active=true);
-create policy "internal program_stages all" on public.program_stages for all to authenticated using (public.is_internal_user()) with check (public.is_internal_user());
-create policy "internal patient_programs all" on public.patient_programs for all to authenticated using (public.is_internal_user()) with check (public.is_internal_user());
+
+create policy "internal program_stages read" on public.program_stages for select to authenticated using (public.is_internal_user());
+create policy "program_stages insert restricted" on public.program_stages for insert to authenticated with check (public.can_manage_catalogs());
+create policy "program_stages update restricted" on public.program_stages for update to authenticated using (public.can_manage_catalogs()) with check (public.can_manage_catalogs());
+create policy "program_stages delete restricted" on public.program_stages for delete to authenticated using (public.can_manage_catalogs());
+
+create policy "internal patient_programs read" on public.patient_programs for select to authenticated using (public.is_internal_user());
+create policy "patient_programs insert restricted" on public.patient_programs for insert to authenticated with check (public.can_write_operational_data());
+create policy "patient_programs update restricted" on public.patient_programs for update to authenticated using (public.can_write_operational_data()) with check (public.can_write_operational_data());
+create policy "patient_programs delete restricted" on public.patient_programs for delete to authenticated using (public.can_write_operational_data());
 create policy "portal own patient_programs read" on public.patient_programs for select to authenticated using (patient_id = (select patient_id from public.user_profiles where id = auth.uid()));
 
-create policy "internal locations all" on public.locations for all to authenticated using (public.is_internal_user()) with check (public.is_internal_user());
+create policy "internal locations read" on public.locations for select to authenticated using (public.is_internal_user());
+create policy "locations write restricted" on public.locations for all to authenticated using (public.can_manage_catalogs()) with check (public.can_manage_catalogs());
 create policy "portal locations read" on public.locations for select to authenticated using (active=true);
-create policy "internal rooms all" on public.rooms for all to authenticated using (public.is_internal_user()) with check (public.is_internal_user());
-create policy "internal appointment_types all" on public.appointment_types for all to authenticated using (public.is_internal_user()) with check (public.is_internal_user());
+
+create policy "internal rooms read" on public.rooms for select to authenticated using (public.is_internal_user());
+create policy "rooms write restricted" on public.rooms for all to authenticated using (public.can_manage_catalogs()) with check (public.can_manage_catalogs());
+
+create policy "internal appointment_types read" on public.appointment_types for select to authenticated using (public.is_internal_user());
+create policy "appointment_types write restricted" on public.appointment_types for all to authenticated using (public.can_manage_catalogs()) with check (public.can_manage_catalogs());
 create policy "portal appointment_types read" on public.appointment_types for select to authenticated using (active=true);
 
-create policy "internal appointments all" on public.appointments for all to authenticated using (public.is_internal_user()) with check (public.is_internal_user());
+create policy "internal appointments read" on public.appointments for select to authenticated using (public.is_internal_user());
+create policy "appointments insert restricted" on public.appointments for insert to authenticated with check (public.can_manage_appointments());
+create policy "appointments update restricted" on public.appointments for update to authenticated using (public.can_manage_appointments()) with check (public.can_manage_appointments());
+create policy "appointments delete restricted" on public.appointments for delete to authenticated using (public.can_manage_appointments());
 create policy "portal own appointments read" on public.appointments for select to authenticated using (patient_id = (select patient_id from public.user_profiles where id = auth.uid()));
-create policy "internal appointment history all" on public.appointment_status_history for all to authenticated using (public.is_internal_user()) with check (public.is_internal_user());
-create policy "internal waiting_list all" on public.waiting_list for all to authenticated using (public.is_internal_user()) with check (public.is_internal_user());
 
-create policy "internal clinical_templates all" on public.clinical_templates for all to authenticated using (public.is_internal_user()) with check (public.is_internal_user());
-create policy "internal clinical_entries all" on public.clinical_entries for all to authenticated using (public.is_internal_user()) with check (public.is_internal_user());
-create policy "internal clinical_versions all" on public.clinical_entry_versions for all to authenticated using (public.is_internal_user()) with check (public.is_internal_user());
-create policy "internal clinical_alerts all" on public.clinical_alerts for all to authenticated using (public.is_internal_user()) with check (public.is_internal_user());
+create policy "internal appointment history read" on public.appointment_status_history for select to authenticated using (public.is_internal_user());
+create policy "appointment history insert restricted" on public.appointment_status_history for insert to authenticated with check (public.can_manage_appointments());
+create policy "appointment history update restricted" on public.appointment_status_history for update to authenticated using (public.can_manage_appointments()) with check (public.can_manage_appointments());
+create policy "appointment history delete restricted" on public.appointment_status_history for delete to authenticated using (public.can_manage_appointments());
 
-create policy "internal document_types all" on public.document_types for all to authenticated using (public.is_internal_user()) with check (public.is_internal_user());
-create policy "internal documents all" on public.patient_documents for all to authenticated using (public.is_internal_user()) with check (public.is_internal_user());
+create policy "internal waiting_list read" on public.waiting_list for select to authenticated using (public.is_internal_user());
+create policy "waiting_list insert restricted" on public.waiting_list for insert to authenticated with check (public.can_manage_appointments());
+create policy "waiting_list update restricted" on public.waiting_list for update to authenticated using (public.can_manage_appointments()) with check (public.can_manage_appointments());
+create policy "waiting_list delete restricted" on public.waiting_list for delete to authenticated using (public.can_manage_appointments());
+
+create policy "internal clinical_templates all" on public.clinical_templates for all to authenticated using (public.can_access_clinical_data()) with check (public.can_access_clinical_data());
+create policy "clinical access restricted" on public.clinical_entries for all to authenticated using (public.can_access_clinical_data()) with check (public.can_access_clinical_data());
+create policy "clinical versions restricted" on public.clinical_entry_versions for all to authenticated using (public.can_access_clinical_data()) with check (public.can_access_clinical_data());
+create policy "clinical alerts restricted" on public.clinical_alerts for all to authenticated using (public.can_access_clinical_data()) with check (public.can_access_clinical_data());
+
+create policy "document types managed users" on public.document_types for all to authenticated using (public.can_manage_documents()) with check (public.can_manage_documents());
+create policy "documents managed users" on public.patient_documents for all to authenticated using (public.can_manage_documents()) with check (public.can_manage_documents());
 create policy "portal released documents read" on public.patient_documents for select to authenticated using (
   exists(
     select 1 from public.portal_document_releases r
@@ -697,11 +792,12 @@ create policy "portal released documents read" on public.patient_documents for s
       and (r.expires_at is null or r.expires_at > now())
   )
 );
-create policy "internal releases all" on public.portal_document_releases for all to authenticated using (public.is_internal_user()) with check (public.is_internal_user());
+create policy "document releases managed users" on public.portal_document_releases for all to authenticated using (public.can_manage_documents()) with check (public.can_manage_documents());
 create policy "portal own releases read" on public.portal_document_releases for select to authenticated using (patient_id = (select patient_id from public.user_profiles where id = auth.uid()) and active = true);
-create policy "document_access internal all" on public.document_access_logs for all to authenticated using (public.is_internal_user()) with check (public.is_internal_user());
+create policy "document access managed users" on public.document_access_logs for all to authenticated using (public.can_manage_documents()) with check (public.can_manage_documents());
 
-create policy "internal portal_requests all" on public.portal_requests for all to authenticated using (public.is_internal_user()) with check (public.is_internal_user());
+create policy "internal portal_requests read" on public.portal_requests for select to authenticated using (public.is_internal_user());
+create policy "internal portal_requests update" on public.portal_requests for update to authenticated using (public.can_write_operational_data()) with check (public.can_write_operational_data());
 create policy "portal own requests read" on public.portal_requests for select to authenticated using (patient_id = (select patient_id from public.user_profiles where id = auth.uid()) or requester_user_id = auth.uid());
 create policy "portal own requests insert" on public.portal_requests for insert to authenticated with check (requester_user_id = auth.uid() and patient_id = (select patient_id from public.user_profiles where id = auth.uid()));
 
@@ -721,8 +817,8 @@ drop policy if exists "portal released clinical documents storage" on storage.ob
 
 create policy "internal clinical documents storage"
 on storage.objects for all to authenticated
-using (bucket_id = 'clinical-documents' and public.is_internal_user())
-with check (bucket_id = 'clinical-documents' and public.is_internal_user());
+using (bucket_id = 'clinical-documents' and public.can_manage_documents())
+with check (bucket_id = 'clinical-documents' and public.can_manage_documents());
 
 create policy "portal released clinical documents storage"
 on storage.objects for select to authenticated

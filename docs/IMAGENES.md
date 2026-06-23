@@ -1,11 +1,9 @@
 # Imágenes integradas
 
-La web pública mantiene su estructura y sus textos. Solo se reemplazaron las referencias visuales por fotografías reales en plano cerrado.
-
-## Secciones
+La web usa fotografías reales en plano cerrado para las secciones visuales.
 
 - Prevención: escritura y trabajo en cuaderno.
-- Familias: manos en vínculo de cuidado.
-- Reinserción: entrevista laboral / acuerdo profesional.
+- Familias: apoyo entre adultos, sin mano de bebé.
+- Reinserción: entrevista/acuerdo laboral.
 
-Las imágenes cargan desde Unsplash para evitar archivos pesados en el repositorio. Si se requiere dejar el proyecto 100% offline, reemplazar las URLs del `index.html` por archivos propios en `assets/`.
+Las imágenes cargan desde Unsplash en alta resolución. Para dejarlas locales, descargar imágenes equivalentes con licencia y reemplazar las URLs del `index.html` por archivos propios en `assets/`.
