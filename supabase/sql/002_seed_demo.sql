@@ -105,10 +105,10 @@ where not exists(select 1 from public.professionals p where p.email=v.email);
 insert into public.patients(org_id, first_name, last_name, document_type, document_number, birth_date, gender, email, phone, address, city, province, emergency_contact_name, emergency_contact_phone, admission_status, admission_date, risk_level, notes, is_demo)
 select (select id from public.organizations where cuit='30-71928002-8'), v.*
 from (values
-('Mateo','Roldán','DNI','99000101','1997-05-12','masculino','mateo.roldan@paciente.demo','+54 9 261 111 0001','Domicilio de prueba 1','Mendoza','Mendoza','Laura Roldán','+54 9 261 222 0001','en_tratamiento',current_date - interval '23 days','medio','Registro ficticio para demostración.',true),
-('Lucía','Giménez','DNI','99000102','2001-09-04','femenino','lucia.gimenez@paciente.demo','+54 9 261 111 0002','Domicilio de prueba 2','Godoy Cruz','Mendoza','Patricia Giménez','+54 9 261 222 0002','evaluacion',current_date - interval '6 days','bajo','Registro ficticio para demostración.',true),
-('Santiago','Páez','DNI','99000103','1989-11-18','masculino','santiago.paez@paciente.demo','+54 9 261 111 0003','Domicilio de prueba 3','Guaymallén','Mendoza','Elena Páez','+54 9 261 222 0003','seguimiento',current_date - interval '105 days','bajo','Registro ficticio para demostración.',true),
-('Rocío','Molina','DNI','99000104','1994-01-21','femenino','rocio.molina@paciente.demo','+54 9 261 111 0004','Domicilio de prueba 4','Las Heras','Mendoza','Claudia Molina','+54 9 261 222 0004','preingreso',current_date - interval '1 day','alto','Registro ficticio para demostración.',true)
+('Mateo','Roldán','DNI','99000101','1997-05-12'::date,'masculino','mateo.roldan@paciente.demo','+54 9 261 111 0001','Domicilio de prueba 1','Mendoza','Mendoza','Laura Roldán','+54 9 261 222 0001','en_tratamiento',(current_date - interval '23 days')::date,'medio','Registro ficticio para demostración.',true),
+('Lucía','Giménez','DNI','99000102','2001-09-04'::date,'femenino','lucia.gimenez@paciente.demo','+54 9 261 111 0002','Domicilio de prueba 2','Godoy Cruz','Mendoza','Patricia Giménez','+54 9 261 222 0002','evaluacion',(current_date - interval '6 days')::date,'bajo','Registro ficticio para demostración.',true),
+('Santiago','Páez','DNI','99000103','1989-11-18'::date,'masculino','santiago.paez@paciente.demo','+54 9 261 111 0003','Domicilio de prueba 3','Guaymallén','Mendoza','Elena Páez','+54 9 261 222 0003','seguimiento',(current_date - interval '105 days')::date,'bajo','Registro ficticio para demostración.',true),
+('Rocío','Molina','DNI','99000104','1994-01-21'::date,'femenino','rocio.molina@paciente.demo','+54 9 261 111 0004','Domicilio de prueba 4','Las Heras','Mendoza','Claudia Molina','+54 9 261 222 0004','preingreso',(current_date - interval '1 day')::date,'alto','Registro ficticio para demostración.',true)
 ) v(first_name,last_name,document_type,document_number,birth_date,gender,email,phone,address,city,province,emergency_contact_name,emergency_contact_phone,admission_status,admission_date,risk_level,notes,is_demo)
 where not exists(select 1 from public.patients p where p.document_number=v.document_number);
 
@@ -178,7 +178,7 @@ where p.document_number='99000101'
   and not exists(select 1 from public.portal_requests r where r.patient_id=p.id and r.is_demo=true);
 
 insert into public.financial_movements(org_id, patient_id, movement_type, category, description, amount, currency, method, status, movement_date, is_demo)
-select (select id from public.organizations where cuit='30-71928002-8'), p.id, 'ingreso', 'aporte familiar', 'Aporte de prueba para visualizar el módulo financiero.', 35000, 'ARS', 'transferencia', 'registrado', current_date - interval '3 days', true
+select (select id from public.organizations where cuit='30-71928002-8'), p.id, 'ingreso', 'aporte familiar', 'Aporte de prueba para visualizar el módulo financiero.', 35000, 'ARS', 'transferencia', 'registrado', (current_date - interval '3 days')::date, true
 from public.patients p
 where p.is_demo=true and p.first_name='Mateo' and not exists(select 1 from public.financial_movements f where f.patient_id=p.id and f.is_demo=true);
 
