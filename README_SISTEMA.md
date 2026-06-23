@@ -85,3 +85,8 @@ La imagen de familias queda tomada desde la URL indicada por el cliente: https:/
 ## Nota de despliegue Vercel
 
 Los archivos de `/sistema` y `/portal` usan rutas absolutas para que funcionen tanto con `/sistema` como con `/sistema/`, evitando errores 404 de `app.js` o `styles.css`.
+
+
+## Corrección anti 404 en Vercel
+
+El repo incluye rutas absolutas para `/sistema/app.js` y `/portal/app.js`, más un `app.js` raíz de respaldo. Esto evita que Vercel cargue `/app.js` por error cuando se abre `/sistema` o `/portal` sin barra final.
