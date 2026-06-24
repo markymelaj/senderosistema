@@ -1,265 +1,279 @@
 const app = document.getElementById('app');
-let sb = null;
-let session = null;
-let profile = null;
-let activeTab = 'dashboard';
-function blankState(){
+let sb; let session; let profile; let config = {}; let activeTab = 'dashboard';
+let state = emptyState();
+
+const roles = [
+  ['direction','Dirección'], ['clinical_coordination','Coordinación clínica'],
+  ['medical','Médico/a'], ['psychologist','Psicología'], ['social_worker','Trabajo social'],
+  ['therapeutic_operator','Operador/a terapéutico'], ['professional','Profesional clínico'],
+  ['admission','Admisión'], ['finance','Finanzas'], ['communications','Comunicaciones'],
+  ['auditor','Auditoría'], ['patient','Paciente'], ['family','Familiar autorizado']
+];
+const tabs = [
+  ['dashboard','Inicio'], ['patients','Pacientes'], ['professionals','Profesionales'],
+  ['schedule','Agenda'], ['clinical','Historia clínica'], ['documents','Documentos'],
+  ['programs','Programas'], ['access','Accesos'], ['finance','Pagos'],
+  ['communications','Comunicados'], ['audit','Auditoría']
+];
+
+function emptyState() {
   return {
-    patients: [], professionals: [], programs: [], appointments: [], appointmentTypes: [], rooms: [],
-    clinicalEntries: [], templates: [], documents: [], documentTypes: [], finance: [], profiles: [], audit: [], orgs: []
+    patients:[], contacts:[], professionals:[], programs:[], appointmentTypes:[], rooms:[],
+    appointments:[], availability:[], blocks:[], clinical:[], documents:[], documentTypes:[],
+    requirements:[], submissions:[], profiles:[], charges:[], payments:[], audit:[]
   };
 }
-let state = blankState();
-
-const tabs = [
-  ['dashboard','Inicio'], ['patients','Pacientes'], ['professionals','Profesionales'], ['appointments','Turnos'],
-  ['clinical','Historia clínica'], ['documents','Documentos'], ['programs','Programas'], ['access','Accesos'],
-  ['finance','Finanzas'], ['audit','Auditoría']
-];
-
-const roleOptions = [
-  ['direction','Dirección'], ['clinical_coordination','Coordinación clínica'], ['medical','Psiquiatra / Médico'],
-  ['psychologist','Psicología'], ['social_worker','Asistente social'], ['therapeutic_operator','Asistente terapéutico'],
-  ['professional','Profesional'], ['admission','Admisión'], ['finance','Administración'], ['auditor','Auditoría'],
-  ['patient','Paciente'], ['family','Familiar autorizado']
-];
-
-
-const demoCredentials = [
-  ['Dirección', 'direccion@senderos.demo', 'Senderos2026!'],
-  ['Profesional', 'profesional@senderos.demo', 'Senderos2026!'],
-  ['Paciente', 'paciente@senderos.demo', 'Senderos2026!'],
-  ['Auditoría', 'auditoria@senderos.demo', 'Senderos2026!']
-];
-
-const statusLabel = {
-  preingreso:'Preingreso', evaluacion:'Evaluación', admitido:'Admitido', en_tratamiento:'En tratamiento',
-  seguimiento:'Seguimiento', egresado:'Egresado', suspendido:'Suspendido', derivado:'Derivado'
-};
+function esc(value='') { return String(value).replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;'}[char])); }
+function name(person) { return person ? `${person.first_name || ''} ${person.last_name || ''}`.trim() : '-'; }
+function roleName(code) { return (roles.find(row => row[0] === code) || [code])[1]; }
+function tag(value, kind='') { return `<span class="tag ${kind}">${esc(value || '-')}</span>`; }
+function dateTime(value) { return value ? new Intl.DateTimeFormat('es-AR',{dateStyle:'short',timeStyle:'short'}).format(new Date(value)) : '-'; }
+function money(value,currency='ARS') { return `${currency} ${Number(value || 0).toLocaleString('es-AR')}`; }
+function table(headers, rows) {
+  if (!rows.length) return '<div class="empty">Sin registros</div>';
+  return `<div class="table-wrap"><table><thead><tr>${headers.map(header => `<th>${header}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${row.map(cell => `<td>${cell ?? '-'}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
+function selectOptions(items, label, includeBlank=false) {
+  return `${includeBlank ? '<option value="">Sin asignar</option>' : ''}${items.map(item => `<option value="${item.id}">${esc(label(item))}</option>`).join('')}`;
+}
+function field(key,label,type='text',required=false) {
+  return `<label class="field">${label}<input name="${key}" type="${type}" ${required ? 'required' : ''}></label>`;
+}
+function pick(form, keys) {
+  const values = {}; const data = new FormData(form);
+  keys.forEach(key => { values[key] = data.get(key) || null; });
+  return values;
+}
+function isAdmin() { return ['super_admin','direction','clinical_coordination'].includes(profile?.role_code); }
+function canFinance() { return ['super_admin','direction','finance'].includes(profile?.role_code); }
+function canCommunicate() { return ['super_admin','direction','clinical_coordination','admission','communications'].includes(profile?.role_code); }
+function canManageDocuments() { return ['super_admin','direction','clinical_coordination','admission','professional','medical','psychologist','social_worker','therapeutic_operator'].includes(profile?.role_code); }
 
 init();
-
-async function init(){
-  try{
-    const cfgRes = await fetch('/api/public-config');
-    const cfg = await cfgRes.json();
-    if(!cfg.supabaseUrl || !cfg.supabaseAnonKey){
-      app.innerHTML = loginShell(`<div class="notice error">Faltan variables de Supabase en Vercel.</div>`);
-      return;
-    }
-    sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth:{ persistSession:true, autoRefreshToken:true }});
-    const { data } = await sb.auth.getSession();
-    session = data.session;
-    sb.auth.onAuthStateChange(async (_event, newSession)=>{ session = newSession; if(session) await loadAll(); else { profile=null; state=blankState(); } render(); });
-    if(session) await loadAll();
+async function init() {
+  try {
+    const response = await fetch('/api/public-config');
+    config = await response.json();
+    if (!config.supabaseUrl || !config.supabaseAnonKey) throw new Error('Faltan variables públicas de Supabase.');
+    sb = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey, { auth:{persistSession:true,autoRefreshToken:true} });
+    const { data } = await sb.auth.getSession(); session = data.session;
+    sb.auth.onAuthStateChange(async (_event, nextSession) => {
+      session = nextSession;
+      if (session) await load();
+      else { profile = null; state = emptyState(); }
+      render();
+    });
+    if (session) await load();
     render();
-  }catch(err){
-    app.innerHTML = loginShell(`<div class="notice error">No se pudo iniciar el sistema: ${escapeHtml(err.message)}</div>`);
+  } catch (error) {
+    app.innerHTML = `<main class="login-wrap"><section class="login-card"><h1>Sistema no configurado</h1><p>${esc(error.message)}</p></section></main>`;
   }
 }
 
-function render(){
-  if(!session){ profile=null; state=blankState(); app.innerHTML = loginShell(); bindLogin(); return; }
-  if(!profile){ app.innerHTML = shell(`<div class="panel"><h2>Activar primer administrador</h2><p class="muted">El usuario inició sesión, pero todavía no tiene perfil interno.</p><button class="btn primary" data-action="bootstrap">Crear primer administrador</button></div>`); bindBase(); return; }
-  visibleTabs();
-  app.innerHTML = shell(renderTab());
-  bindBase();
-  bindTab();
+async function loadTable(query) {
+  const result = await query;
+  return result.error ? [] : (result.data || []);
 }
-
-function loginShell(extra=''){
-  return `<main class="login-wrap"><section class="login-card"><img src="../assets/logo-senderos.png" alt="Senderos de Libertad"><h1>Sistema interno</h1><p>Acceso para dirección, profesionales y administración.</p>${extra}<form id="loginForm" class="form"><label class="field">Email<input name="email" type="email" required autocomplete="email"></label><label class="field">Contraseña<input name="password" type="password" required autocomplete="current-password"></label><button class="btn primary" type="submit">Ingresar</button></form><div class="demo-box"><button class="btn secondary full" type="button" data-prepare-demo>Preparar accesos demo</button><p>Ingresos rápidos para mostrar el sistema:</p><div class="demo-grid">${demoCredentials.map(([label,email,password])=>`<button type="button" data-demo-login data-email="${email}" data-password="${password}"><strong>${label}</strong><span>${email}</span></button>`).join('')}</div></div><a class="back-link" href="/">Volver a la web</a></section></main>`;
-}
-
-function shell(content){
-  return `<div class="layout"><aside class="sidebar"><div class="brand"><img src="../assets/logo-senderos.png" alt=""><div><strong>Senderos de Libertad</strong><small>${profile ? roleName(profile.role_code) : 'Sin perfil'}</small></div></div><nav class="nav">${visibleTabs().map(([id,label])=>`<button data-tab="${id}" class="${activeTab===id?'active':''}">${label}</button>`).join('')}</nav><button class="logout" data-action="logout">Cerrar sesión</button></aside><main class="main"><header class="topbar"><div><p class="eyebrow">Sistema clínico administrativo</p><h1>${tabTitle(activeTab)}</h1></div><div class="top-actions"><button class="btn secondary" data-action="refresh">Actualizar</button></div></header><div id="messages"></div>${content}</main></div>`;
-}
-
-function tabTitle(id){ return (tabs.find(t=>t[0]===id)||[])[1] || 'Sistema'; }
-function roleName(code){ return (roleOptions.find(r=>r[0]===code)||[])[1] || code || 'Usuario'; }
-function visibleTabs(){
-  const role = profile?.role_code || '';
-  const allowed = {
-    auditor: ['dashboard','patients','professionals','appointments','programs','audit'],
-    finance: ['dashboard','patients','appointments','finance'],
-    admission: ['dashboard','patients','professionals','appointments','documents'],
-    therapeutic_operator: ['dashboard','patients','appointments','clinical','programs'],
-    social_worker: ['dashboard','patients','appointments','clinical','documents','programs'],
-    psychologist: ['dashboard','patients','appointments','clinical','documents','programs'],
-    medical: ['dashboard','patients','appointments','clinical','documents','programs'],
-    professional: ['dashboard','patients','appointments','clinical','documents','programs'],
-    patient: ['dashboard'],
-    family: ['dashboard']
-  };
-  const ids = allowed[role] || tabs.map(t=>t[0]);
-  if(!ids.includes(activeTab)) activeTab = ids[0] || 'dashboard';
-  return tabs.filter(t=>ids.includes(t[0]));
-}
-
-function isAuditor(){ return profile?.role_code === 'auditor'; }
-function readOnlyNotice(){ return '<p class="muted">Vista de auditoría: permite control operativo y trazabilidad. La información clínica confidencial y documentos sensibles no están disponibles para este perfil.</p>'; }
-
-function msg(text,type='ok'){ const el=document.getElementById('messages'); if(el) el.innerHTML=`<div class="notice ${type}">${escapeHtml(text)}</div>`; }
-function escapeHtml(s=''){ return String(s).replace(/[&<>'"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;'}[c])); }
-function fmt(v){ if(!v) return '-'; return new Intl.DateTimeFormat('es-AR',{dateStyle:'short',timeStyle:'short'}).format(new Date(v)); }
-function money(n,c='ARS'){ return `${c} ${Number(n||0).toLocaleString('es-AR')}`; }
-
-function bindLogin(){
-  document.getElementById('loginForm')?.addEventListener('submit', async e=>{
-    e.preventDefault();
-    const fd = new FormData(e.currentTarget);
-    await loginWith(String(fd.get('email')), String(fd.get('password')));
-  });
-  document.querySelectorAll('[data-demo-login]').forEach(btn=>btn.addEventListener('click', async()=>{
-    await loginWith(btn.dataset.email, btn.dataset.password);
-  }));
-  document.querySelector('[data-prepare-demo]')?.addEventListener('click', async()=>{
-    const btn=document.querySelector('[data-prepare-demo]');
-    btn.disabled=true; btn.textContent='Preparando accesos...';
-    try{
-      const res=await fetch('/api/init-demo-users',{method:'POST'});
-      const data=await res.json();
-      if(!res.ok) throw new Error(data.error || 'No se pudieron preparar los accesos');
-      app.innerHTML = loginShell(`<div class="notice ok">Accesos demo listos. Podés ingresar con los botones rápidos.</div>`);
-    }catch(err){
-      app.innerHTML = loginShell(`<div class="notice error">${escapeHtml(err.message)}</div>`);
-    }
-    bindLogin();
-  });
-}
-async function loginWith(email,password){
-  const { error } = await sb.auth.signInWithPassword({ email, password });
-  if(error) app.innerHTML = loginShell(`<div class="notice error">${escapeHtml(error.message)}</div>`), bindLogin();
-}
-
-function bindBase(){
-  document.querySelectorAll('[data-tab]').forEach(btn=>btn.addEventListener('click',()=>{ activeTab=btn.dataset.tab; render(); }));
-  document.querySelector('[data-action="logout"]')?.addEventListener('click', async()=>{ await sb.auth.signOut(); });
-  document.querySelector('[data-action="refresh"]')?.addEventListener('click', async()=>{ await loadAll(); render(); msg('Información actualizada.'); });
-  document.querySelector('[data-action="bootstrap"]')?.addEventListener('click', async()=>{
-    const { data, error } = await sb.rpc('bootstrap_first_admin', { display_name: 'Administrador Senderos' });
-    if(error) msg(error.message,'error'); else { await loadAll(); render(); msg(data || 'Administrador creado.'); }
-  });
-}
-
-async function loadAll(){
-  const prof = await sb.from('user_profiles').select('*').eq('id', session.user.id).maybeSingle();
-  profile = prof.data || null;
-  state = blankState();
-  if(!profile) return;
+async function load() {
+  const result = await sb.from('user_profiles').select('*').eq('id',session.user.id).maybeSingle();
+  profile = result.data || null;
+  if (!profile || profile.account_kind !== 'internal') return;
   const queries = await Promise.all([
-    sb.from('patients').select('*').is('deleted_at', null).order('created_at',{ascending:false}).limit(500),
-    sb.from('professionals').select('*').order('full_name').limit(300),
-    sb.from('programs').select('*').order('name').limit(100),
-    sb.from('appointment_types').select('*').order('name'),
-    sb.from('rooms').select('id,name').order('name'),
-    sb.from('appointments').select('*, patients(first_name,last_name), professionals(full_name), appointment_types(name), rooms(name)').order('start_at',{ascending:true}).limit(300),
-    sb.from('clinical_entries').select('*, patients(first_name,last_name), professionals(full_name)').is('deleted_at', null).order('created_at',{ascending:false}).limit(300),
-    sb.from('clinical_templates').select('*').order('name'),
-    sb.from('patient_documents').select('*, patients(first_name,last_name), document_types(name)').order('created_at',{ascending:false}).limit(300),
-    sb.from('document_types').select('*').order('name'),
-    sb.from('financial_movements').select('*, patients(first_name,last_name)').order('movement_date',{ascending:false}).limit(300),
-    sb.from('user_profiles').select('*').order('created_at',{ascending:false}).limit(300),
-    sb.from('audit_logs').select('*').order('created_at',{ascending:false}).limit(200),
-    sb.from('organizations').select('*').limit(10)
+    loadTable(sb.from('patients').select('*').is('deleted_at',null).order('last_name').limit(500)),
+    loadTable(sb.from('patient_contacts').select('*').order('full_name').limit(500)),
+    loadTable(sb.from('professionals').select('*').eq('active',true).order('full_name')),
+    loadTable(sb.from('programs').select('*').eq('active',true).order('name')),
+    loadTable(sb.from('appointment_types').select('*').eq('active',true).order('name')),
+    loadTable(sb.from('rooms').select('*').eq('active',true).order('name')),
+    loadTable(sb.from('appointments').select('*, patients(first_name,last_name), professionals(full_name), appointment_types(name), rooms(name)').order('start_at').limit(500)),
+    loadTable(sb.from('professional_availability_rules').select('*, professionals(full_name), rooms(name)').eq('active',true).order('weekday')),
+    loadTable(sb.from('calendar_blocks').select('*, professionals(full_name), rooms(name)').eq('active',true).order('start_at').limit(300)),
+    loadTable(sb.from('clinical_entries').select('*, patients(first_name,last_name), professionals(full_name)').is('deleted_at',null).order('created_at',{ascending:false}).limit(300)),
+    loadTable(sb.from('patient_documents').select('*, patients(first_name,last_name), document_types(name)').order('created_at',{ascending:false}).limit(300)),
+    loadTable(sb.from('document_types').select('*').eq('active',true).order('name')),
+    loadTable(sb.from('document_requirements').select('*, patients(first_name,last_name), document_types(name)').order('created_at',{ascending:false}).limit(300)),
+    loadTable(sb.from('portal_document_submissions').select('*, document_requirements(title), patients(first_name,last_name)').order('created_at',{ascending:false}).limit(300)),
+    loadTable(sb.from('user_profiles').select('*').order('created_at',{ascending:false}).limit(500)),
+    loadTable(sb.from('financial_charges').select('*, patients(first_name,last_name)').order('created_at',{ascending:false}).limit(300)),
+    loadTable(sb.from('financial_payments').select('*, financial_charges(description), patients(first_name,last_name)').order('paid_at',{ascending:false}).limit(300)),
+    loadTable(sb.from('audit_logs').select('*').order('created_at',{ascending:false}).limit(300))
   ]);
-  ['patients','professionals','programs','appointmentTypes','rooms','appointments','clinicalEntries','templates','documents','documentTypes','finance','profiles','audit','orgs'].forEach((key,i)=>{ if(!queries[i].error) state[key]=queries[i].data||[]; });
+  [state.patients,state.contacts,state.professionals,state.programs,state.appointmentTypes,state.rooms,
+    state.appointments,state.availability,state.blocks,state.clinical,state.documents,state.documentTypes,
+    state.requirements,state.submissions,state.profiles,state.charges,state.payments,state.audit] = queries;
 }
 
-function renderTab(){
-  if(activeTab==='dashboard') return dashboard();
-  if(activeTab==='patients') return patientsTab();
-  if(activeTab==='professionals') return professionalsTab();
-  if(activeTab==='appointments') return appointmentsTab();
-  if(activeTab==='clinical') return clinicalTab();
-  if(activeTab==='documents') return documentsTab();
-  if(activeTab==='programs') return programsTab();
-  if(activeTab==='access') return accessTab();
-  if(activeTab==='finance') return financeTab();
-  if(activeTab==='audit') return auditTab();
-  return '';
+function allowedTabs() {
+  const role = profile?.role_code;
+  const blocked = {
+    auditor:['clinical','documents','finance','access','communications'],
+    finance:['clinical','documents','programs','access','communications','professionals'],
+    admission:['clinical','finance','audit'],
+    communications:['clinical','documents','finance','access','audit','programs'],
+    professional:['access','finance','audit','communications'],
+    medical:['access','finance','audit','communications'],
+    psychologist:['access','finance','audit','communications'],
+    social_worker:['access','finance','audit','communications'],
+    therapeutic_operator:['access','finance','audit','communications']
+  };
+  const hidden = blocked[role] || [];
+  const list = tabs.filter(tab => !hidden.includes(tab[0]));
+  if (!list.some(tab => tab[0] === activeTab)) activeTab = list[0]?.[0] || 'dashboard';
+  return list;
 }
 
-function dashboard(){
-  const active = state.patients.filter(p=>['preingreso','evaluacion','admitido','en_tratamiento','seguimiento'].includes(p.admission_status)).length;
-  const next = state.appointments.filter(a=>new Date(a.start_at)>new Date()).length;
-  const docs = state.documents.filter(d=>d.status!=='validado').length;
-  const demo = state.patients.filter(p=>p.is_demo).length;
-  const actions = isAuditor() ? `<section class="panel" style="margin-top:16px"><h2>Auditoría operativa</h2>${readOnlyNotice()}</section>` : `<section class="panel" style="margin-top:16px"><h2>Acciones rápidas</h2><div class="top-actions"><button class="btn primary" data-tab-jump="patients">Nuevo paciente</button><button class="btn primary" data-tab-jump="professionals">Nuevo profesional</button><button class="btn secondary" data-tab-jump="appointments">Agendar turno</button><button class="btn secondary" data-tab-jump="access">Crear acceso</button></div></section>`;
-  return `<div class="grid kpis"><div class="kpi"><span>Pacientes activos</span><strong>${active}</strong></div><div class="kpi"><span>Turnos próximos</span><strong>${next}</strong></div><div class="kpi"><span>Documentos pendientes</span><strong>${docs}</strong></div><div class="kpi"><span>Pacientes de prueba</span><strong>${demo}</strong></div></div><div class="grid two" style="margin-top:16px"><section class="panel"><h2>Agenda próxima</h2>${table(['Fecha','Paciente','Profesional','Estado'], state.appointments.slice(0,8).map(a=>[fmt(a.start_at), patientName(a.patients), a.professionals?.full_name||'-', tag(a.status)]))}</section><section class="panel"><h2>Pacientes recientes</h2>${table(['Paciente','DNI','Estado','Riesgo'], state.patients.slice(0,8).map(p=>[fullName(p), p.document_number||'-', statusLabel[p.admission_status]||p.admission_status, riskTag(p.risk_level)]))}</section></div>${actions}`;
+function render() {
+  if (!session) { app.innerHTML = login(); bindLogin(); return; }
+  if (!profile) {
+    app.innerHTML = `<main class="login-wrap"><section class="login-card"><h1>Acceso pendiente</h1><p>Esta cuenta no tiene un perfil interno activo. Solicite una invitación al administrador.</p><button class="btn secondary" data-logout>Salir</button></section></main>`;
+    document.querySelector('[data-logout]')?.addEventListener('click',() => sb.auth.signOut());
+    return;
+  }
+  if (profile.account_kind !== 'internal') { window.location.href = '/portal/'; return; }
+  app.innerHTML = shell(tabContent());
+  bindBase(); bindTab();
 }
 
-function patientsTab(){
-  const rows = state.patients.map(p=>[fullName(p), p.document_number||'-', p.phone||'-', statusLabel[p.admission_status]||p.admission_status, riskTag(p.risk_level), isAuditor()?'-':`<button class="btn small secondary" data-create-access="patient" data-id="${p.id}" data-name="${escapeHtml(fullName(p))}" data-email="${escapeHtml(p.email||'')}">Acceso</button>`]);
-  const list = `<section class="panel"><h2>Pacientes</h2>${isAuditor()?readOnlyNotice():''}${table(['Paciente','DNI','Teléfono','Estado','Riesgo','Acción'], rows)}</section>`;
-  if(isAuditor()) return list;
-  return `<div class="grid two"><section class="panel"><h2>Alta de paciente</h2><form id="patientForm" class="form two-cols">${field('first_name','Nombre','text',true)}${field('last_name','Apellido','text',true)}${field('document_number','DNI','text',false)}${field('birth_date','Fecha de nacimiento','date',false)}${field('phone','Teléfono','text',false)}${field('email','Email','email',false)}<label class="field">Estado<select name="admission_status"><option value="preingreso">Preingreso</option><option value="evaluacion">Evaluación</option><option value="admitido">Admitido</option><option value="en_tratamiento">En tratamiento</option><option value="seguimiento">Seguimiento</option></select></label><label class="field">Riesgo<select name="risk_level"><option value="bajo">Bajo</option><option value="medio">Medio</option><option value="alto">Alto</option></select></label>${field('emergency_contact_name','Familiar / referente','text',false)}${field('emergency_contact_phone','Teléfono referente','text',false)}<label class="field full">Programa inicial<select name="program_id"><option value="">Sin asignar</option>${state.programs.map(p=>`<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')}</select></label><label class="field full">Profesional responsable<select name="responsible_professional_id"><option value="">Sin asignar</option>${state.professionals.map(p=>`<option value="${p.id}">${escapeHtml(p.full_name)} · ${escapeHtml(p.role_title)}</option>`).join('')}</select></label><label class="field inline full"><input type="checkbox" name="create_access"> Crear acceso al portal ahora</label>${field('access_email','Email de acceso','email',false)}${field('access_password','Contraseña inicial','password',false)}<button class="btn primary full" type="submit">Guardar paciente</button></form></section>${list}</div>`;
+function login() {
+  const demo = config.demoEnabled ? `<div class="demo-box"><button class="btn secondary full" type="button" data-demo-setup>Preparar demo local</button><p>Disponible solo en un entorno de demostración.</p></div>` : '';
+  return `<main class="login-wrap"><section class="login-card"><img src="../assets/logo-senderos.png" alt=""><h1>Sistema interno</h1><p>Acceso seguro para equipos clínicos, administrativos y de dirección.</p><form id="loginForm" class="form"><label class="field">Email<input name="email" type="email" required autocomplete="email"></label><label class="field">Contraseña<input name="password" type="password" required autocomplete="current-password"></label><button class="btn primary">Ingresar</button></form>${demo}<a class="back-link" href="/">Volver a la web</a></section></main>`;
+}
+function shell(content) {
+  return `<div class="layout"><aside class="sidebar"><div class="brand"><img src="../assets/logo-senderos.png" alt=""><div><strong>Senderos de Libertad</strong><small>${esc(roleName(profile.role_code))}</small></div></div><nav class="nav">${allowedTabs().map(([id,label]) => `<button data-tab="${id}" class="${activeTab===id?'active':''}">${label}</button>`).join('')}</nav><button class="logout" data-logout>Cerrar sesión</button></aside><main class="main"><header class="topbar"><div><p class="eyebrow">Operación clínica y administrativa</p><h1>${(tabs.find(tab => tab[0]===activeTab)||[])[1] || 'Sistema'}</h1></div><div class="top-actions"><button class="btn secondary" data-refresh>Actualizar</button></div></header><div id="messages"></div>${content}</main></div>`;
+}
+function notice(text,type='ok') { const element=document.getElementById('messages'); if(element) element.innerHTML=`<div class="notice ${type==='error'?'error':'ok'}">${esc(text)}</div>`; }
+
+function tabContent() {
+  return ({
+    dashboard: dashboard(), patients: patientsTab(), professionals: professionalsTab(), schedule: scheduleTab(),
+    clinical: clinicalTab(), documents: documentsTab(), programs: programsTab(), access: accessTab(),
+    finance: financeTab(), communications: communicationsTab(), audit: auditTab()
+  })[activeTab] || '';
+}
+function dashboard() {
+  const active = state.patients.filter(patient => !['egresado','derivado','suspendido'].includes(patient.admission_status)).length;
+  const upcoming = state.appointments.filter(item => new Date(item.start_at)>new Date() && !['cancelado','reprogramado'].includes(item.status)).length;
+  const pendingDocs = state.requirements.filter(item => ['requested','rejected'].includes(item.status)).length;
+  const pendingPayments = state.charges.filter(item => ['open','partial','overdue'].includes(item.status)).length;
+  return `<div class="grid kpis"><div class="kpi"><span>Pacientes activos</span><strong>${active}</strong></div><div class="kpi"><span>Turnos próximos</span><strong>${upcoming}</strong></div><div class="kpi"><span>Documentos solicitados</span><strong>${pendingDocs}</strong></div><div class="kpi"><span>Cargos abiertos</span><strong>${pendingPayments}</strong></div></div><div class="grid two" style="margin-top:16px"><section class="panel"><h2>Próximos turnos</h2>${table(['Fecha','Paciente','Profesional','Estado'],state.appointments.slice(0,8).map(item=>[dateTime(item.start_at),name(item.patients),esc(item.professionals?.full_name||'-'),tag(item.status)]))}</section><section class="panel"><h2>Control operativo</h2><p class="muted">La agenda valida disponibilidad, bloqueos y solapamientos. Los documentos enviados por portal requieren revisión; los pagos se concilian sin pasarela.</p><p class="muted">Google Calendar queda en estado de preparación hasta configurar OAuth y el calendario de cada profesional.</p></section></div>`;
+}
+function patientsTab() {
+  const rows = state.patients.map(patient => [esc(name(patient)),esc(patient.document_number||'-'),tag(patient.admission_status),tag(patient.risk_level,patient.risk_level==='alto'?'red':''),esc(patient.phone||'-')]);
+  const form = `<section class="panel"><h2>Alta de paciente y referente</h2><form id="patientForm" class="form two-cols">${field('first_name','Nombre','text',true)}${field('last_name','Apellido','text',true)}${field('document_number','DNI','text')}${field('birth_date','Nacimiento','date')}${field('phone','Teléfono')}${field('email','Email','email')}<label class="field">Estado<select name="admission_status"><option value="preingreso">Preingreso</option><option value="evaluacion">Evaluación</option><option value="admitido">Admitido</option><option value="en_tratamiento">En tratamiento</option><option value="seguimiento">Seguimiento</option></select></label><label class="field">Riesgo<select name="risk_level"><option value="bajo">Bajo</option><option value="medio">Medio</option><option value="alto">Alto</option></select></label><label class="field full">Programa<select name="program_id"><option value="">Sin asignar</option>${selectOptions(state.programs,item=>item.name)}</select></label><label class="field full">Profesional responsable<select name="professional_id"><option value="">Sin asignar</option>${selectOptions(state.professionals,item=>item.full_name)}</select></label><h3 class="field full">Familiar o referente</h3>${field('contact_name','Nombre')}${field('contact_email','Email','email')}${field('contact_phone','Teléfono')}<label class="field">Relación<input name="contact_relationship" placeholder="Madre, tutor, referente"></label><label class="field inline full"><input type="checkbox" name="contact_authorized"> Autorizar portal y comunicaciones para este contacto</label><button class="btn primary full">Guardar paciente</button></form></section>`;
+  return `<div class="grid two">${form}<section class="panel"><h2>Pacientes</h2>${table(['Paciente','DNI','Estado','Riesgo','Teléfono'],rows)}</section></div>`;
+}
+function professionalsTab() {
+  const rows = state.professionals.map(item => [esc(item.full_name),esc(item.role_title),esc(item.specialty||'-'),esc(item.email||'-')]);
+  const form = isAdmin() ? `<section class="panel"><h2>Alta de profesional</h2><form id="professionalForm" class="form two-cols">${field('full_name','Nombre completo','text',true)}${field('role_title','Cargo','text',true)}${field('specialty','Especialidad')}${field('license_number','Matrícula')}${field('email','Email','email')}${field('phone','Teléfono')}<label class="field full">Perfil<textarea name="bio" rows="3"></textarea></label><button class="btn primary full">Guardar profesional</button></form></section>` : '';
+  return `<div class="grid two">${form}<section class="panel"><h2>Profesionales</h2>${table(['Nombre','Cargo','Especialidad','Email'],rows)}</section></div>`;
+}
+function weekCalendar() {
+  const first = new Date(); first.setHours(0,0,0,0);
+  const days = Array.from({length:7},(_,index)=>new Date(first.getTime()+index*86400000));
+  return `<div class="grid" style="grid-template-columns:repeat(7,minmax(130px,1fr));overflow:auto">${days.map(day=>{const key=day.toISOString().slice(0,10);const entries=state.appointments.filter(item=>item.start_at.slice(0,10)===key);return `<section class="panel" style="padding:10px"><strong>${day.toLocaleDateString('es-AR',{weekday:'short',day:'numeric'})}</strong>${entries.map(item=>`<div class="item" style="margin-top:8px;padding:8px"><small>${new Date(item.start_at).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</small><strong>${esc(name(item.patients))}</strong><small>${esc(item.professionals?.full_name||'-')}</small></div>`).join('') || '<p class="muted">Sin turnos</p>'}</section>`}).join('')}</div>`;
+}
+function scheduleTab() {
+  const appointmentRows = state.appointments.map(item => [dateTime(item.start_at),esc(name(item.patients)),esc(item.professionals?.full_name||'-'),esc(item.rooms?.name||'-'),tag(item.status),`<div class="row-actions">${['asistido','ausente','cancelado','reprogramado'].map(status=>`<button class="btn small secondary" data-appointment-status="${status}" data-id="${item.id}">${status}</button>`).join('')}</div>`]);
+  const availability = `<section class="panel"><h2>Disponibilidad profesional</h2><form id="availabilityForm" class="form two-cols"><label class="field full">Profesional<select name="professional_id" required>${selectOptions(state.professionals,item=>item.full_name)}</select></label><label class="field">Día<select name="weekday"><option value="1">Lunes</option><option value="2">Martes</option><option value="3">Miércoles</option><option value="4">Jueves</option><option value="5">Viernes</option><option value="6">Sábado</option><option value="0">Domingo</option></select></label>${field('start_time','Desde','time',true)}${field('end_time','Hasta','time',true)}${field('effective_from','Vigente desde','date',true)}<button class="btn secondary full">Agregar disponibilidad</button></form><div class="list">${state.availability.map(item=>`<div class="item"><strong>${esc(item.professionals?.full_name||'-')}</strong><span>${['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][item.weekday]} · ${item.start_time.slice(0,5)}–${item.end_time.slice(0,5)}</span></div>`).join('') || '<p class="muted">Sin disponibilidad cargada.</p>'}</div></section>`;
+  const block = `<section class="panel"><h2>Bloquear horario</h2><form id="blockForm" class="form two-cols"><label class="field full">Profesional<select name="professional_id"><option value="">Solo sala</option>${selectOptions(state.professionals,item=>item.full_name)}</select></label><label class="field full">Sala<select name="room_id"><option value="">Sin sala</option>${selectOptions(state.rooms,item=>item.name)}</select></label>${field('title','Motivo','text',true)}<label class="field">Tipo<select name="block_type"><option value="manual">Bloqueo manual</option><option value="leave">Licencia</option><option value="meeting">Reunión</option><option value="external_busy">Ocupado externo</option></select></label>${field('start_at','Inicio','datetime-local',true)}${field('end_at','Fin','datetime-local',true)}<button class="btn danger full">Bloquear</button></form></section>`;
+  const create = `<section class="panel"><h2>Agendar turno</h2><form id="appointmentForm" class="form two-cols"><label class="field full">Paciente<select name="patient_id" required>${selectOptions(state.patients,name)}</select></label><label class="field full">Profesional<select name="professional_id" required>${selectOptions(state.professionals,item=>item.full_name)}</select></label><label class="field">Tipo<select name="appointment_type_id" required>${selectOptions(state.appointmentTypes,item=>item.name)}</select></label><label class="field">Sala<select name="room_id"><option value="">Sin sala</option>${selectOptions(state.rooms,item=>item.name)}</select></label><label class="field">Programa<select name="program_id"><option value="">Sin programa</option>${selectOptions(state.programs,item=>item.name)}</select></label><label class="field">Modalidad<select name="modality"><option value="presencial">Presencial</option><option value="online">Online</option></select></label>${field('start_at','Inicio','datetime-local',true)}${field('end_at','Fin','datetime-local',true)}<label class="field full">Motivo<input name="reason"></label><button class="btn primary full">Confirmar turno</button></form></section>`;
+  return `<div class="grid two">${create}${availability}${block}<section class="panel"><h2>Calendario semanal</h2>${weekCalendar()}</section><section class="panel"><h2>Turnos y estados</h2>${table(['Fecha','Paciente','Profesional','Sala','Estado','Acción'],appointmentRows)}</section><section class="panel"><h2>Bloqueos próximos</h2>${table(['Desde','Hasta','Profesional','Motivo'],state.blocks.map(item=>[dateTime(item.start_at),dateTime(item.end_at),esc(item.professionals?.full_name||item.rooms?.name||'-'),esc(item.title)]))}</section></div>`;
+}
+function clinicalTab() {
+  const form = `<section class="panel"><h2>Nueva evolución</h2><form id="clinicalForm" class="form two-cols"><label class="field full">Paciente<select name="patient_id" required>${selectOptions(state.patients,name)}</select></label><label class="field full">Profesional<select name="professional_id"><option value="">Mi profesional asociado</option>${selectOptions(state.professionals,item=>item.full_name)}</select></label><label class="field">Tipo<input name="entry_type" value="evolucion"></label><label class="field">Estado<select name="status"><option value="draft">Borrador</option><option value="signed">Firmar y cerrar</option></select></label>${field('title','Título','text',true)}<label class="field full">Contenido<textarea name="body" rows="9" required></textarea></label><button class="btn primary full">Guardar</button></form></section>`;
+  return `<div class="grid two">${form}<section class="panel"><h2>Registros recientes</h2>${table(['Fecha','Paciente','Título','Estado'],state.clinical.map(item=>[dateTime(item.created_at),esc(name(item.patients)),esc(item.title),tag(item.status)]))}</section></div>`;
+}
+function documentsTab() {
+  const upload = canManageDocuments() ? `<section class="panel"><h2>Cargar documento interno</h2><form id="documentForm" class="form two-cols"><label class="field full">Paciente<select name="patient_id" required>${selectOptions(state.patients,name)}</select></label><label class="field full">Tipo<select name="document_type_id"><option value="">Sin tipo</option>${selectOptions(state.documentTypes,item=>item.name)}</select></label>${field('title','Título','text',true)}<label class="field">Visibilidad<select name="visibility"><option value="private_administrative">Administrativo</option><option value="private_clinical">Clínico</option><option value="internal_direction">Dirección</option></select></label><label class="field full">Archivo<input name="file" type="file" accept=".pdf,image/png,image/jpeg,image/webp"></label><button class="btn primary full">Guardar documento</button></form></section>` : '';
+  const request = canManageDocuments() ? `<section class="panel"><h2>Solicitar documentación</h2><form id="requirementForm" class="form two-cols"><label class="field full">Paciente<select name="patient_id" required>${selectOptions(state.patients,name)}</select></label><label class="field full">Tipo<select name="document_type_id"><option value="">Otro</option>${selectOptions(state.documentTypes,item=>item.name)}</select></label>${field('title','Documento requerido','text',true)}${field('due_date','Vencimiento','date')}<label class="field full">Indicaciones<textarea name="instructions" rows="3"></textarea></label><label class="field inline"><input type="checkbox" name="allow_patient" checked> Puede subir paciente</label><label class="field inline"><input type="checkbox" name="allow_family" checked> Puede subir familiar</label><button class="btn secondary full">Solicitar en portal</button></form></section>` : '';
+  const docs = state.documents.map(item=>[esc(name(item.patients)),esc(item.title),esc(item.document_types?.name||'-'),tag(item.status),`<button class="btn small secondary" data-release-doc="${item.id}" data-patient="${item.patient_id}">Liberar al paciente</button>`]);
+  const requirements = state.requirements.map(item=>[esc(name(item.patients)),esc(item.title),item.due_date||'-',tag(item.status)]);
+  const submissions = state.submissions.map(item=>[esc(name(item.patients)),esc(item.document_requirements?.title||'-'),dateTime(item.created_at),tag(item.status),item.status==='submitted'?`<div class="row-actions"><button class="btn small primary" data-review="approved" data-id="${item.id}">Aprobar</button><button class="btn small danger" data-review="rejected" data-id="${item.id}">Rechazar</button></div>`:'-']);
+  return `<div class="grid two">${upload}${request}<section class="panel"><h2>Documentos del legajo</h2>${table(['Paciente','Documento','Tipo','Estado','Portal'],docs)}</section><section class="panel"><h2>Solicitudes pendientes</h2>${table(['Paciente','Documento','Vence','Estado'],requirements)}</section><section class="panel"><h2>Archivos recibidos desde portal</h2>${table(['Paciente','Solicitud','Recibido','Estado','Acción'],submissions)}</section></div>`;
+}
+function programsTab() {
+  const form = isAdmin() ? `<section class="panel"><h2>Nuevo programa</h2><form id="programForm" class="form"><label class="field">Nombre<input name="name" required></label>${field('duration_weeks','Duración (semanas)','number')}<label class="field">Descripción<textarea name="description" rows="4"></textarea></label><button class="btn primary">Guardar programa</button></form></section>`:'';
+  return `<div class="grid two">${form}<section class="panel"><h2>Programas activos</h2>${table(['Programa','Duración','Descripción'],state.programs.map(item=>[esc(item.name),item.duration_weeks||'-',esc(item.description||'-')]))}</section></div>`;
+}
+function accessTab() {
+  if (!isAdmin()) return '<section class="panel"><p class="muted">No posee permisos para gestionar accesos.</p></section>';
+  const users = state.profiles.map(item=>[esc(item.full_name),esc(item.email),esc(roleName(item.role_code)),tag(item.active?'activo':'inactivo',item.active?'green':'red'),`<div class="row-actions"><button class="btn small secondary" data-toggle-user="${item.id}" data-active="${item.active?'false':'true'}">${item.active?'Desactivar':'Activar'}</button><button class="btn small secondary" data-reset-user="${item.id}">Restablecer</button></div>`]);
+  return `<div class="grid two"><section class="panel"><h2>Crear acceso seguro</h2><p class="muted">Paciente y familiar son cuentas de portal; el familiar requiere un contacto autorizado. Nunca puede recibir un rol de auditoría.</p><form id="accessForm" class="form two-cols"><label class="field">Tipo<select name="kind" id="accessKind"><option value="patient">Paciente</option><option value="family">Familiar autorizado</option><option value="professional">Profesional clínico</option><option value="internal">Administración interna</option></select></label><div class="field" id="accessRoleWrap"></div><div class="field full" id="accessLinkWrap"></div>${field('full_name','Nombre visible','text',true)}${field('email','Email','email',true)}${field('password','Contraseña temporal','password',true)}<small class="field full">Mínimo 12 caracteres, con mayúscula, minúscula y número. El acceso se crea nuevo: no se reasignan cuentas existentes.</small><button class="btn primary full">Crear acceso</button></form></section><section class="panel"><h2>Usuarios y credenciales</h2>${table(['Nombre','Email','Rol','Estado','Acción'],users)}</section></div>`;
+}
+function financeTab() {
+  if (!canFinance()) return '<section class="panel"><p class="muted">No posee permisos de finanzas.</p></section>';
+  const chargeRows = state.charges.map(item=>[esc(name(item.patients)),esc(item.description),money(item.amount,item.currency),money(item.paid_amount,item.currency),tag(item.status),`<button class="btn small secondary" data-pay-charge="${item.id}" data-patient="${item.patient_id||''}">Registrar pago</button>`]);
+  return `<div class="grid two"><section class="panel"><h2>Crear cargo</h2><form id="chargeForm" class="form two-cols"><label class="field full">Paciente<select name="patient_id"><option value="">Sin paciente (donación/convenio)</option>${selectOptions(state.patients,name)}</select></label>${field('category','Categoría','text',true)}${field('amount','Monto','number',true)}${field('description','Descripción','text',true)}${field('due_date','Vencimiento','date')}<label class="field">Moneda<select name="currency"><option>ARS</option><option>USD</option></select></label><button class="btn primary full">Registrar cargo</button></form></section><section class="panel"><h2>Registrar pago manual</h2><form id="paymentForm" class="form two-cols"><input type="hidden" name="charge_id"><label class="field full">Paciente<select name="patient_id"><option value="">Sin paciente</option>${selectOptions(state.patients,name)}</select></label>${field('amount','Monto','number',true)}<label class="field">Método<select name="method"><option value="bank_transfer">Transferencia</option><option value="cash">Efectivo</option><option value="pos">POS</option><option value="agreement">Convenio</option><option value="scholarship">Beca</option><option value="other">Otro</option></select></label>${field('reference','Referencia / comprobante')}${field('payer_name','Pagador')}<label class="field full">Notas<input name="notes"></label><button class="btn secondary full">Confirmar pago</button></form></section><section class="panel"><h2>Cargos y saldos</h2>${table(['Paciente','Concepto','Cargo','Pagado','Estado','Acción'],chargeRows)}</section><section class="panel"><h2>Últimos pagos</h2>${table(['Fecha','Paciente','Monto','Método','Estado'],state.payments.map(item=>[dateTime(item.paid_at),esc(name(item.patients)),money(item.amount,item.currency),esc(item.method),tag(item.status)]))}</section></div>`;
+}
+function communicationsTab() {
+  if (!canCommunicate()) return '<section class="panel"><p class="muted">No posee permisos para enviar comunicados.</p></section>';
+  return `<section class="panel" style="max-width:760px"><h2>Nuevo comunicado institucional</h2><p class="muted">No incluir información clínica sensible. Los correos quedan en cola hasta configurar un proveedor de envío.</p><form id="communicationForm" class="form two-cols"><label class="field">Audiencia<select name="audience"><option value="professionals">Profesionales</option><option value="patients">Pacientes</option><option value="families">Familiares autorizados</option><option value="patient_network">Paciente y familia</option></select></label><label class="field">Canal<select name="channel"><option value="in_app">Portal / sistema</option><option value="email">Email (cola preparada)</option></select></label><label class="field full">Paciente específico (opcional; obligatorio para red)<select name="patient_id"><option value="">Toda la audiencia</option>${selectOptions(state.patients,name)}</select></label>${field('title','Asunto','text',true)}<label class="field full">Mensaje<textarea name="body" rows="8" required></textarea></label><button class="btn primary full">Enviar comunicado</button></form></section>`;
+}
+function auditTab() {
+  return `<section class="panel"><h2>Trazabilidad</h2>${table(['Fecha','Acción','Entidad','Rol','Riesgo'],state.audit.map(item=>[dateTime(item.created_at),esc(item.action),esc(item.entity_table||'-'),esc(item.actor_role||'-'),tag(item.risk_level)]))}</section>`;
 }
 
-function professionalsTab(){
-  const rows = state.professionals.map(p=>[p.full_name, p.role_title, p.specialty||'-', p.email||'-', isAuditor()?'-':`<button class="btn small secondary" data-create-access="professional" data-id="${p.id}" data-name="${escapeHtml(p.full_name)}" data-email="${escapeHtml(p.email||'')}">Acceso</button>`]);
-  const list = `<section class="panel"><h2>Profesionales</h2>${isAuditor()?readOnlyNotice():''}${table(['Nombre','Cargo','Especialidad','Email','Acción'], rows)}</section>`;
-  if(isAuditor()) return list;
-  return `<div class="grid two"><section class="panel"><h2>Alta de profesional</h2><form id="professionalForm" class="form two-cols">${field('full_name','Nombre completo','text',true)}${field('role_title','Cargo','text',true)}${field('specialty','Especialidad','text',false)}${field('license_number','Matrícula','text',false)}${field('email','Email','email',false)}${field('phone','Teléfono','text',false)}<label class="field full">Descripción<textarea name="bio" rows="3"></textarea></label><label class="field inline full"><input type="checkbox" name="create_access"> Crear acceso al sistema ahora</label><label class="field">Rol de acceso<select name="role_code">${roleOptions.filter(r=>!['patient','family'].includes(r[0])).map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></label>${field('access_password','Contraseña inicial','password',false)}<button class="btn primary full" type="submit">Guardar profesional</button></form></section>${list}</div>`;
+function bindLogin() {
+  document.getElementById('loginForm')?.addEventListener('submit',async event=>{event.preventDefault();const data=new FormData(event.currentTarget);const {error}=await sb.auth.signInWithPassword({email:data.get('email'),password:data.get('password')});if(error){app.innerHTML=login();bindLogin();}});
+  document.querySelector('[data-demo-setup]')?.addEventListener('click',async()=>{const response=await fetch('/api/init-demo-users',{method:'POST'});const data=await response.json();if(!response.ok) alert(data.error||'No se pudo preparar la demo.');else alert('Demo preparada.');});
 }
-
-function appointmentsTab(){
-  const list = `<section class="panel"><h2>Agenda</h2>${isAuditor()?readOnlyNotice():''}${table(['Fecha','Paciente','Profesional','Tipo','Estado'], state.appointments.map(a=>[fmt(a.start_at), patientName(a.patients), a.professionals?.full_name||'-', a.appointment_types?.name||'-', tag(a.status)]))}</section>`;
-  if(isAuditor()) return list;
-  return `<div class="grid two"><section class="panel"><h2>Nuevo turno</h2><form id="appointmentForm" class="form two-cols"><label class="field full">Paciente<select name="patient_id" required>${opts(state.patients, fullName)}</select></label><label class="field full">Profesional<select name="professional_id" required>${opts(state.professionals, p=>`${p.full_name} · ${p.role_title}`)}</select></label><label class="field">Tipo<select name="appointment_type_id" required>${opts(state.appointmentTypes, t=>t.name)}</select></label><label class="field">Programa<select name="program_id"><option value="">Sin programa</option>${opts(state.programs, p=>p.name)}</select></label><label class="field">Sala<select name="room_id"><option value="">Sin sala</option>${opts(state.rooms, r=>r.name)}</select></label><label class="field">Modalidad<select name="modality"><option value="presencial">Presencial</option><option value="online">Online</option></select></label>${field('start_at','Inicio','datetime-local',true)}${field('end_at','Fin','datetime-local',true)}<label class="field full">Motivo<input name="reason"></label><button class="btn primary full" type="submit">Agendar turno</button></form></section>${list}</div>`;
+function bindBase() {
+  document.querySelectorAll('[data-tab]').forEach(button=>button.addEventListener('click',()=>{activeTab=button.dataset.tab;render();}));
+  document.querySelector('[data-logout]')?.addEventListener('click',()=>sb.auth.signOut());
+  document.querySelector('[data-refresh]')?.addEventListener('click',async()=>{await load();render();notice('Información actualizada.');});
 }
-
-function clinicalTab(){
-  return `<div class="grid two"><section class="panel"><h2>Registro clínico</h2><form id="clinicalForm" class="form two-cols"><label class="field full">Paciente<select name="patient_id" required>${opts(state.patients, fullName)}</select></label><label class="field full">Profesional<select name="professional_id">${opts(state.professionals, p=>`${p.full_name} · ${p.role_title}`, true)}</select></label><label class="field">Tipo<select name="entry_type">${state.templates.map(t=>`<option value="${escapeHtml(t.entry_type)}">${escapeHtml(t.name)}</option>`).join('')}<option value="nota">Nota</option></select></label><label class="field">Estado<select name="status"><option value="draft">Borrador</option><option value="signed">Firmado / cerrado</option></select></label>${field('title','Título','text',true)}<label class="field full">Contenido<textarea name="body" rows="9" required></textarea></label><button class="btn primary full" type="submit">Guardar registro</button></form></section><section class="panel"><h2>Historia clínica</h2>${table(['Fecha','Paciente','Tipo','Título','Estado'], state.clinicalEntries.map(e=>[fmt(e.created_at), patientName(e.patients), e.entry_type, e.title, tag(e.status)]))}</section></div>`;
+async function save(tableName,payload,message) {
+  const { error } = await sb.from(tableName).insert(payload);
+  if (error) throw error;
+  await load(); render(); notice(message);
 }
-
-function documentsTab(){
-  return `<div class="grid two"><section class="panel"><h2>Cargar documento</h2><form id="documentForm" class="form two-cols"><label class="field full">Paciente<select name="patient_id" required>${opts(state.patients, fullName)}</select></label><label class="field full">Tipo<select name="document_type_id">${opts(state.documentTypes, d=>d.name, true)}</select></label>${field('title','Título','text',true)}<label class="field">Visibilidad<select name="visibility"><option value="private_administrative">Privado administrativo</option><option value="private_clinical">Privado clínico</option><option value="internal_direction">Solo dirección</option></select></label><label class="field full">Archivo<input type="file" name="file"></label><button class="btn primary full" type="submit">Guardar documento</button></form></section><section class="panel"><h2>Documentos</h2>${table(['Paciente','Documento','Tipo','Estado','Archivo','Portal'], state.documents.map(d=>[patientName(d.patients), d.title, d.document_types?.name||'-', d.status, d.file_path?'Cargado':'Pendiente', `<button class="btn small secondary" data-release-doc="${d.id}" data-patient="${d.patient_id}">Liberar</button>`]))}</section></div>`;
+function bindTab() {
+  document.getElementById('patientForm')?.addEventListener('submit',async event=>{
+    event.preventDefault(); const form=event.currentTarget; const payload=pick(form,['first_name','last_name','document_number','birth_date','phone','email','admission_status','risk_level']); payload.admission_date=new Date().toISOString().slice(0,10);
+    const {data,error}=await sb.from('patients').insert(payload).select().single(); if(error) return notice(error.message,'error');
+    const formData=new FormData(form); const programId=formData.get('program_id'); const professionalId=formData.get('professional_id');
+    if(programId) await sb.from('patient_programs').insert({patient_id:data.id,program_id:programId,responsible_professional_id:professionalId||null,current_stage:'Primer contacto',goals:'Acompañamiento inicial.'});
+    if(formData.get('contact_name')) await sb.from('patient_contacts').insert({patient_id:data.id,full_name:formData.get('contact_name'),email:formData.get('contact_email')||null,phone:formData.get('contact_phone')||null,relationship:formData.get('contact_relationship')||null,is_authorized:Boolean(formData.get('contact_authorized')),can_access_portal:Boolean(formData.get('contact_authorized')),can_receive_updates:Boolean(formData.get('contact_authorized'))});
+    await load();render();notice('Paciente y referente guardados.');
+  });
+  document.getElementById('professionalForm')?.addEventListener('submit',async event=>{event.preventDefault();try{await save('professionals',{...pick(event.currentTarget,['full_name','role_title','specialty','license_number','email','phone','bio']),active:true},'Profesional guardado.');}catch(error){notice(error.message,'error');}});
+  document.getElementById('appointmentForm')?.addEventListener('submit',async event=>{event.preventDefault();const data=pick(event.currentTarget,['patient_id','professional_id','appointment_type_id','start_at','end_at','program_id','room_id','modality','reason']);const {error}=await sb.rpc('create_appointment_secure',{p_patient_id:data.patient_id,p_professional_id:data.professional_id,p_appointment_type_id:data.appointment_type_id,p_start_at:data.start_at,p_end_at:data.end_at,p_program_id:data.program_id||null,p_room_id:data.room_id||null,p_location_id:null,p_modality:data.modality,p_reason:data.reason||null});if(error)return notice(error.message,'error');await load();render();notice('Turno confirmado y protegido contra solapamientos.');});
+  document.getElementById('availabilityForm')?.addEventListener('submit',async event=>{event.preventDefault();try{await save('professional_availability_rules',{...pick(event.currentTarget,['professional_id','weekday','start_time','end_time','effective_from']),active:true},'Disponibilidad agregada.');}catch(error){notice(error.message,'error');}});
+  document.getElementById('blockForm')?.addEventListener('submit',async event=>{event.preventDefault();const data=pick(event.currentTarget,['professional_id','room_id','title','block_type','start_at','end_at']);data.professional_id=data.professional_id||null;data.room_id=data.room_id||null;if(!data.professional_id&&!data.room_id)return notice('Seleccione profesional o sala.','error');try{await save('calendar_blocks',{...data,active:true},'Horario bloqueado.');}catch(error){notice(error.message,'error');}});
+  document.querySelectorAll('[data-appointment-status]').forEach(button=>button.addEventListener('click',async()=>{const {error}=await sb.rpc('update_appointment_status_secure',{p_appointment_id:button.dataset.id,p_status:button.dataset.appointmentStatus,p_attendance_status:null,p_reason:null});if(error)return notice(error.message,'error');await load();render();notice('Estado actualizado.');}));
+  document.getElementById('clinicalForm')?.addEventListener('submit',async event=>{event.preventDefault();const data=pick(event.currentTarget,['patient_id','professional_id','entry_type','title','body','status']);data.professional_id=data.professional_id||null;if(data.status==='signed')data.signed_at=new Date().toISOString();try{await save('clinical_entries',data,'Registro clínico guardado.');}catch(error){notice(error.message,'error');}});
+  document.getElementById('documentForm')?.addEventListener('submit',uploadInternalDocument);
+  document.getElementById('requirementForm')?.addEventListener('submit',async event=>{event.preventDefault();const form=event.currentTarget;const data=pick(form,['patient_id','document_type_id','title','instructions','due_date']);const fd=new FormData(form);data.document_type_id=data.document_type_id||null;data.due_date=data.due_date||null;data.allow_patient=Boolean(fd.get('allow_patient'));data.allow_family=Boolean(fd.get('allow_family'));try{await save('document_requirements',data,'Solicitud publicada en el portal.');}catch(error){notice(error.message,'error');}});
+  document.querySelectorAll('[data-review]').forEach(button=>button.addEventListener('click',async()=>{const note=prompt(button.dataset.review==='approved'?'Nota interna opcional:':'Motivo del rechazo para portal:');const response=await api('/api/review-document-submission',{submission_id:button.dataset.id,decision:button.dataset.review,reviewer_note:note||null});if(!response.ok)return notice(response.error,'error');await load();render();notice(button.dataset.review==='approved'?'Documento aprobado.':'Documento rechazado.');}));
+  document.querySelectorAll('[data-release-doc]').forEach(button=>button.addEventListener('click',async()=>{const {error}=await sb.from('portal_document_releases').insert({document_id:button.dataset.releaseDoc,patient_id:button.dataset.patient,released_to:'patient',active:true});if(error)return notice(error.message,'error');notice('Documento liberado al paciente.');}));
+  document.getElementById('programForm')?.addEventListener('submit',async event=>{event.preventDefault();const data=pick(event.currentTarget,['name','duration_weeks','description']);data.slug=data.name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'');data.active=true;try{await save('programs',data,'Programa guardado.');}catch(error){notice(error.message,'error');}});
+  bindAccess();
+  document.getElementById('chargeForm')?.addEventListener('submit',async event=>{event.preventDefault();const data=pick(event.currentTarget,['patient_id','category','description','amount','currency','due_date']);data.patient_id=data.patient_id||null;data.due_date=data.due_date||null;data.amount=Number(data.amount);try{await save('financial_charges',data,'Cargo registrado.');}catch(error){notice(error.message,'error');}});
+  document.getElementById('paymentForm')?.addEventListener('submit',async event=>{event.preventDefault();const data=pick(event.currentTarget,['charge_id','patient_id','amount','method','reference','payer_name','notes']);data.charge_id=data.charge_id||null;data.patient_id=data.patient_id||null;data.amount=Number(data.amount);data.status='confirmed';try{await save('financial_payments',data,'Pago manual registrado y conciliado.');}catch(error){notice(error.message,'error');}});
+  document.querySelectorAll('[data-pay-charge]').forEach(button=>button.addEventListener('click',()=>{const form=document.getElementById('paymentForm');form.charge_id.value=button.dataset.payCharge;form.patient_id.value=button.dataset.patient||'';form.scrollIntoView({behavior:'smooth'});}));
+  document.getElementById('communicationForm')?.addEventListener('submit',async event=>{event.preventDefault();const response=await api('/api/send-communication',pick(event.currentTarget,['title','body','audience','channel','patient_id']));if(!response.ok)return notice(response.error,'error');event.currentTarget.reset();notice(`Comunicado enviado a ${response.recipients} destinatarios.`);});
 }
-
-function programsTab(){
-  const list = `<section class="panel"><h2>Programas</h2>${isAuditor()?readOnlyNotice():''}${table(['Programa','Duración','Estado','Descripción'], state.programs.map(p=>[p.name, p.duration_weeks?`${p.duration_weeks} semanas`:'-', p.active?'Activo':'Inactivo', p.description||'-']))}</section>`;
-  if(isAuditor()) return list;
-  return `<div class="grid two"><section class="panel"><h2>Nuevo programa</h2><form id="programForm" class="form">${field('name','Nombre','text',true)}<label class="field">Duración estimada, semanas<input name="duration_weeks" type="number" min="1"></label><label class="field">Descripción<textarea name="description" rows="5"></textarea></label><button class="btn primary" type="submit">Guardar programa</button></form></section>${list}</div>`;
+async function uploadInternalDocument(event) {
+  event.preventDefault(); const form=event.currentTarget; const fd=new FormData(form); const file=fd.get('file'); let path=null;
+  if(file?.name){path=`${fd.get('patient_id')}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g,'-')}`;const {error}=await sb.storage.from('clinical-documents').upload(path,file);if(error)return notice(error.message,'error');}
+  try{await save('patient_documents',{patient_id:fd.get('patient_id'),document_type_id:fd.get('document_type_id')||null,title:fd.get('title'),visibility:fd.get('visibility'),file_path:path,storage_bucket:'clinical-documents',mime_type:file?.type||null,size_bytes:file?.size||null,status:'cargado'},'Documento guardado.');}catch(error){notice(error.message,'error');}
 }
-
-function accessTab(){
-  return `<div class="grid two"><section class="panel"><h2>Crear credencial</h2><form id="accessForm" class="form two-cols"><label class="field">Tipo<select name="kind" id="accessKind"><option value="patient">Paciente</option><option value="family">Familiar autorizado</option><option value="professional">Profesional</option></select></label><label class="field">Rol<select name="role_code" id="accessRole">${roleOptions.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></label><label class="field full">Vincular con<select name="linked_id" id="linkedSelect"></select></label>${field('full_name','Nombre visible','text',true)}${field('email','Email','email',true)}${field('password','Contraseña inicial','password',true)}<button class="btn primary full" type="submit">Crear acceso</button></form></section><section class="panel"><h2>Usuarios</h2>${table(['Nombre','Email','Rol','Estado'], state.profiles.map(u=>[u.full_name, u.email, roleName(u.role_code), u.active?tag('activo','green'):tag('inactivo','red')]))}</section></div>`;
+function bindAccess() {
+  const form=document.getElementById('accessForm'); if(!form)return;
+  const kind=document.getElementById('accessKind');
+  const sync=()=>{
+    const value=kind.value;const role=document.getElementById('accessRoleWrap');const linked=document.getElementById('accessLinkWrap');
+    if(value==='patient'){role.innerHTML='Rol<input value="Paciente" disabled>';linked.innerHTML=`Vincular paciente<select name="patient_id" required>${selectOptions(state.patients,name)}</select>`;}
+    if(value==='family'){role.innerHTML='Rol<input value="Familiar autorizado (portal)" disabled>';linked.innerHTML=`Paciente<select name="family_patient_id" id="familyPatient" required>${selectOptions(state.patients,name)}</select><div id="familyContactWrap"></div><label class="field inline"><input type="checkbox" name="can_view_documents"> Ver documentos liberados</label><label class="field inline"><input type="checkbox" name="can_upload_documents"> Cargar documentos solicitados</label>`;syncFamilyContacts();}
+    if(value==='professional'){role.innerHTML=`Rol clínico<select name="role_code">${roles.filter(row=>['professional','medical','psychologist','social_worker','therapeutic_operator'].includes(row[0])).map(row=>`<option value="${row[0]}">${row[1]}</option>`).join('')}</select>`;linked.innerHTML=`Vincular profesional<select name="professional_id" required>${selectOptions(state.professionals,item=>item.full_name)}</select>`;}
+    if(value==='internal'){role.innerHTML=`Rol<select name="role_code">${roles.filter(row=>['admission','finance','communications','direction','auditor'].includes(row[0])).map(row=>`<option value="${row[0]}">${row[1]}</option>`).join('')}</select>`;linked.innerHTML='Cuenta interna sin ficha clínica';}
+  };
+  const syncFamilyContacts=()=>{const patient=document.getElementById('familyPatient');const wrap=document.getElementById('familyContactWrap');if(!patient||!wrap)return;const contacts=state.contacts.filter(item=>item.patient_id===patient.value&&item.is_authorized&&item.can_access_portal);wrap.innerHTML=`Contacto autorizado<select name="patient_contact_id" required>${selectOptions(contacts,item=>`${item.full_name} · ${item.relationship||'referente'}`)}</select>`;patient.addEventListener('change',syncFamilyContacts,{once:true});};
+  kind.addEventListener('change',sync);sync();
+  form.addEventListener('submit',async event=>{event.preventDefault();const fd=new FormData(form);const body={kind:fd.get('kind'),email:fd.get('email'),password:fd.get('password'),full_name:fd.get('full_name'),role_code:fd.get('role_code')};if(body.kind==='patient')body.patient_id=fd.get('patient_id');if(body.kind==='professional')body.professional_id=fd.get('professional_id');if(body.kind==='family')body.authorizations=[{patient_id:fd.get('family_patient_id'),patient_contact_id:fd.get('patient_contact_id'),can_view_profile:true,can_view_appointments:true,can_receive_updates:true,can_view_documents:Boolean(fd.get('can_view_documents')),can_upload_documents:Boolean(fd.get('can_upload_documents'))}];const response=await api('/api/create-user',body);if(!response.ok)return notice(response.error,'error');await load();render();notice('Acceso creado de forma segura.');});
+  document.querySelectorAll('[data-toggle-user]').forEach(button=>button.addEventListener('click',()=>updateAccess(button.dataset.toggleUser,{active:button.dataset.active==='true'})));
+  document.querySelectorAll('[data-reset-user]').forEach(button=>button.addEventListener('click',()=>{const password=prompt('Nueva contraseña temporal (12+ caracteres, mayúscula, minúscula y número):');if(password)updateAccess(button.dataset.resetUser,{password});}));
 }
+async function updateAccess(userId,payload){const response=await api('/api/update-user-access',{user_id:userId,...payload});if(!response.ok)return notice(response.error,'error');await load();render();notice('Acceso actualizado.');}
+async function api(url,body){const response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${session.access_token}`},body:JSON.stringify(body)});let data={};try{data=await response.json();}catch{}return {ok:response.ok,...data};}
 
-function financeTab(){
-  return `<div class="grid two"><section class="panel"><h2>Movimiento financiero</h2><form id="financeForm" class="form two-cols"><label class="field">Tipo<select name="movement_type"><option value="ingreso">Ingreso</option><option value="egreso">Egreso</option></select></label>${field('category','Categoría','text',true)}<label class="field full">Paciente opcional<select name="patient_id"><option value="">Sin paciente</option>${opts(state.patients, fullName)}</select></label>${field('amount','Monto','number',true)}<label class="field">Moneda<select name="currency"><option value="ARS">ARS</option><option value="USD">USD</option></select></label><label class="field">Método<input name="method" value="transferencia"></label><label class="field full">Descripción<input name="description" required></label><button class="btn primary full" type="submit">Registrar movimiento</button></form></section><section class="panel"><h2>Movimientos</h2>${table(['Fecha','Tipo','Categoría','Descripción','Monto'], state.finance.map(f=>[f.movement_date, f.movement_type, f.category, f.description, money(f.amount,f.currency)]))}</section></div>`;
-}
-
-function auditTab(){ return `<section class="panel"><h2>Auditoría</h2>${table(['Fecha','Acción','Entidad','Rol','Riesgo'], state.audit.map(a=>[fmt(a.created_at), a.action, a.entity_table||'-', a.actor_role||'-', tag(a.risk_level)]))}</section>`; }
-
-function bindTab(){
-  document.querySelectorAll('[data-tab-jump]').forEach(b=>b.addEventListener('click',()=>{ activeTab=b.dataset.tabJump; render(); }));
-  document.querySelectorAll('[data-create-access]').forEach(b=>b.addEventListener('click',()=>{ activeTab='access'; render(); setTimeout(()=>prefillAccess(b.dataset.createAccess,b.dataset.id,b.dataset.name,b.dataset.email),0); }));
-  bindPatientForm(); bindProfessionalForm(); bindAppointmentForm(); bindClinicalForm(); bindDocumentForm(); bindReleaseDocument(); bindProgramForm(); bindAccessForm(); bindFinanceForm();
-}
-
-function bindPatientForm(){ document.getElementById('patientForm')?.addEventListener('submit', async e=>{ e.preventDefault(); const fd=new FormData(e.currentTarget); const payload=pick(fd,['first_name','last_name','document_number','birth_date','phone','email','admission_status','risk_level','emergency_contact_name','emergency_contact_phone']); payload.admission_date = new Date().toISOString().slice(0,10); const { data, error } = await sb.from('patients').insert(payload).select().single(); if(error) return msg(error.message,'error'); const programId=fd.get('program_id'); if(programId) await sb.from('patient_programs').insert({ patient_id:data.id, program_id:programId, responsible_professional_id:fd.get('responsible_professional_id')||null, current_stage:'Primer contacto', goals:'Acompañamiento inicial.' }); if(fd.get('create_access')){ const email=String(fd.get('access_email')||payload.email||''); const password=String(fd.get('access_password')||''); if(email && password) await createUser({ email, password, full_name:`${payload.first_name} ${payload.last_name}`, role_code:'patient', patient_id:data.id }); } await loadAll(); render(); msg('Paciente guardado.'); }); }
-function bindProfessionalForm(){ document.getElementById('professionalForm')?.addEventListener('submit', async e=>{ e.preventDefault(); const fd=new FormData(e.currentTarget); const payload=pick(fd,['full_name','role_title','specialty','license_number','email','phone','bio']); payload.active=true; const { data, error } = await sb.from('professionals').insert(payload).select().single(); if(error) return msg(error.message,'error'); if(fd.get('create_access')){ const password=String(fd.get('access_password')||''); if(payload.email && password) await createUser({ email:payload.email, password, full_name:payload.full_name, role_code:String(fd.get('role_code')), professional_id:data.id }); } await loadAll(); render(); msg('Profesional guardado.'); }); }
-function bindAppointmentForm(){ document.getElementById('appointmentForm')?.addEventListener('submit', async e=>{ e.preventDefault(); const fd=new FormData(e.currentTarget); const payload=pick(fd,['patient_id','professional_id','program_id','appointment_type_id','room_id','modality','start_at','end_at','reason']); payload.status='confirmado'; Object.keys(payload).forEach(k=>{ if(payload[k]==='') payload[k]=null; }); const { error } = await sb.from('appointments').insert(payload); if(error) return msg(error.message,'error'); await loadAll(); render(); msg('Turno agendado.'); }); }
-function bindClinicalForm(){ document.getElementById('clinicalForm')?.addEventListener('submit', async e=>{ e.preventDefault(); const fd=new FormData(e.currentTarget); const payload=pick(fd,['patient_id','professional_id','entry_type','title','body','status']); if(payload.status==='signed') payload.signed_at=new Date().toISOString(); Object.keys(payload).forEach(k=>{ if(payload[k]==='') payload[k]=null; }); const { error } = await sb.from('clinical_entries').insert(payload); if(error) return msg(error.message,'error'); await loadAll(); render(); msg('Registro guardado.'); }); }
-function bindDocumentForm(){ document.getElementById('documentForm')?.addEventListener('submit', async e=>{ e.preventDefault(); const fd=new FormData(e.currentTarget); const file=fd.get('file'); let filePath=null; if(file && file.name){ filePath=`${fd.get('patient_id')}/${Date.now()}-${file.name}`; const up=await sb.storage.from('clinical-documents').upload(filePath,file); if(up.error) return msg(up.error.message,'error'); } const payload={ patient_id:fd.get('patient_id'), document_type_id:fd.get('document_type_id')||null, title:fd.get('title'), visibility:fd.get('visibility'), file_path:filePath, mime_type:file?.type||null, size_bytes:file?.size||null }; const { error } = await sb.from('patient_documents').insert(payload); if(error) return msg(error.message,'error'); await loadAll(); render(); msg('Documento guardado.'); }); }
-
-function bindReleaseDocument(){ document.querySelectorAll('[data-release-doc]').forEach(btn=>btn.addEventListener('click', async()=>{ const { error } = await sb.from('portal_document_releases').insert({ document_id:btn.dataset.releaseDoc, patient_id:btn.dataset.patient, released_to:'patient', active:true }); if(error) return msg(error.message,'error'); await loadAll(); render(); msg('Documento liberado al portal.'); })); }
-
-function bindProgramForm(){ document.getElementById('programForm')?.addEventListener('submit', async e=>{ e.preventDefault(); const fd=new FormData(e.currentTarget); const name=String(fd.get('name')); const payload={ name, slug:slugify(name), duration_weeks:Number(fd.get('duration_weeks')||0)||null, description:fd.get('description'), active:true }; const { error } = await sb.from('programs').insert(payload); if(error) return msg(error.message,'error'); await loadAll(); render(); msg('Programa guardado.'); }); }
-function bindAccessForm(){ const form=document.getElementById('accessForm'); if(!form) return; const kind=document.getElementById('accessKind'); kind?.addEventListener('change',()=>refreshLinkedSelect()); refreshLinkedSelect(); form.addEventListener('submit', async e=>{ e.preventDefault(); const fd=new FormData(e.currentTarget); const kind=String(fd.get('kind')); const linked=String(fd.get('linked_id')); const body={ email:String(fd.get('email')), password:String(fd.get('password')), full_name:String(fd.get('full_name')), role_code:String(fd.get('role_code')) }; if(kind==='professional') body.professional_id=linked; else body.patient_id=linked; const res=await createUser(body); if(res){ await loadAll(); render(); msg('Acceso creado.'); } }); }
-function bindFinanceForm(){ document.getElementById('financeForm')?.addEventListener('submit', async e=>{ e.preventDefault(); const fd=new FormData(e.currentTarget); const payload=pick(fd,['movement_type','category','description','amount','currency','method','patient_id']); payload.amount=Number(payload.amount); payload.patient_id=payload.patient_id||null; payload.status='registrado'; const { error } = await sb.from('financial_movements').insert(payload); if(error) return msg(error.message,'error'); await loadAll(); render(); msg('Movimiento registrado.'); }); }
-
-async function createUser(body){ const token=session.access_token; const res=await fetch('/api/create-user',{ method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`}, body:JSON.stringify(body)}); const data=await res.json(); if(!res.ok){ msg(data.error||'No se pudo crear el acceso.','error'); return null; } return data; }
-function pick(fd,keys){ const o={}; keys.forEach(k=>o[k]=fd.get(k)||null); return o; }
-function opts(arr,label,allowEmpty=false){ return `${allowEmpty?'<option value="">Sin asignar</option>':''}${arr.map(x=>`<option value="${x.id}">${escapeHtml(label(x))}</option>`).join('')}`; }
-function field(name,label,type='text',required=false){ return `<label class="field">${label}<input name="${name}" type="${type}" ${required?'required':''}></label>`; }
-function fullName(p){ return `${p.first_name||''} ${p.last_name||''}`.trim(); }
-function patientName(p){ return p ? `${p.first_name||''} ${p.last_name||''}`.trim() : '-'; }
-function tag(text,color=''){ return `<span class="tag ${color}">${escapeHtml(text||'-')}</span>`; }
-function riskTag(r){ return tag(r, r==='alto'?'red':r==='bajo'?'green':''); }
-function table(headers, rows){ if(!rows.length) return `<div class="empty">Sin registros</div>`; return `<div class="table-wrap"><table><thead><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.map(row=>`<tr>${row.map(c=>`<td>${String(c??'-')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`; }
-function slugify(s){ return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,''); }
-function refreshLinkedSelect(){ const kind=document.getElementById('accessKind')?.value || 'patient'; const role=document.getElementById('accessRole'); const linked=document.getElementById('linkedSelect'); if(!linked) return; if(kind==='professional'){ linked.innerHTML=opts(state.professionals, p=>`${p.full_name} · ${p.role_title}`); if(role) role.value='professional'; } else { linked.innerHTML=opts(state.patients, fullName); if(role) role.value=kind==='family'?'family':'patient'; } }
-function prefillAccess(kind,id,name,email){ const kindEl=document.getElementById('accessKind'); const linked=document.getElementById('linkedSelect'); if(kindEl){ kindEl.value=kind; refreshLinkedSelect(); } if(linked) linked.value=id; const form=document.getElementById('accessForm'); if(form){ form.full_name.value=name||''; form.email.value=email||''; form.role_code.value=kind==='professional'?'professional':'patient'; } }
