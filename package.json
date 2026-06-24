@@ -5,5 +5,9 @@
   "type": "module",
   "dependencies": {
     "@supabase/supabase-js": "^2.49.4"
+  },
+  "scripts": {
+    "dev": "vercel dev",
+    "check": "node --check sistema/app.js && node --check portal/app.js && node --check api/create-user.js && node --check api/init-demo-users.js && node --check api/public-config.js && node --check api/update-user-access.js && node --check app.js"
   }
 }

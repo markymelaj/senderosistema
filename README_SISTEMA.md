@@ -79,7 +79,7 @@ Los perfiles clínicos y de coordinación sí pueden registrar y consultar infor
 
 ## Imagen de familias
 
-La imagen de familias queda tomada desde la URL indicada por el cliente: https://www.magnific.com/es/fotos-vectores-gratis/manos-familia
+La imagen de familias está incluida localmente en assets/familia-acompanamiento.png
 
 
 ## Nota de despliegue Vercel

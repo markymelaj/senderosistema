@@ -22,4 +22,4 @@ Proyecto listo para publicar en Vercel.
 
 ## Imágenes
 
-La web usa fotografías reales en plano cerrado. La imagen de familias queda tomada desde la URL indicada por el cliente: https://www.magnific.com/es/fotos-vectores-gratis/manos-familia
+La web usa fotografías reales en plano cerrado. La imagen de familias está incluida localmente en assets/familia-acompanamiento.png
