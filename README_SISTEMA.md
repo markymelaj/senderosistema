@@ -41,9 +41,11 @@ Para borrar los datos de ejemplo antes de iniciar la operación real:
 
 Después de ejecutar los SQL y desplegar en Vercel:
 
+> **Importante:** los botones de acceso directo y el botón *Restaurar demo* solo aparecen si la variable de entorno **`ENABLE_DEMO_SETUP=true`** está definida en Vercel (en el mismo *Environment* del despliegue que estás mostrando, **incluido Production**). Después de agregarla, volvé a desplegar. Con `ENABLE_DEMO_SETUP=false` o sin definir, no se muestran: ese es el modo para la operación real.
+
 1. Entrar a `/sistema/`.
-2. Presionar `Preparar accesos demo`.
-3. Ingresar con uno de estos usuarios:
+2. Tocar uno de los **botones de acceso directo** (Dirección, Profesional o Auditoría): preparan los accesos si hace falta e inician sesión sin escribir nada.
+3. También se puede ingresar manualmente con:
 
 | Perfil | Email | Contraseña |
 |---|---|---|

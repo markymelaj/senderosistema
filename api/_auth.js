@@ -77,7 +77,8 @@ export const DEMO_USERS = [
 export const DEMO_EMAILS = DEMO_USERS.map(user => user.email);
 
 export function demoEnabled() {
-  return process.env.ENABLE_DEMO_SETUP === 'true' && process.env.VERCEL_ENV !== 'production';
+  const value = String(process.env.ENABLE_DEMO_SETUP ?? '').trim().toLowerCase();
+  return ['true', '1', 'yes', 'on'].includes(value);
 }
 
 export async function deleteDemoUsers(admin) {

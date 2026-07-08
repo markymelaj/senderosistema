@@ -32,6 +32,8 @@ Cambios aplicados para que la demo sirva como presentación a dueños y equipo d
 
 ## Cómo probar
 1. Ejecutar los SQL en el orden indicado.
-2. Con `ENABLE_DEMO_SETUP=true`, entrar a `/sistema/` y preparar los accesos demo.
-3. Ingresar como `direccion@senderos.demo` / `Senderos2026!`.
+2. Definir **`ENABLE_DEMO_SETUP=true`** en Vercel (en el Environment del despliegue, incluido Production) y volver a desplegar. Este único interruptor habilita los botones de acceso directo, la creación de accesos demo y el botón *Restaurar demo*.
+3. Entrar a `/sistema/` y tocar un botón de acceso directo (Dirección, Profesional o Auditoría); en `/portal/`, el botón Paciente.
 4. Recorrer con la **Guía**, descargar el **PDF** y usar **Restaurar demo** para volver al estado inicial.
+
+> Para pasar a operación real, poner `ENABLE_DEMO_SETUP=false` (o quitar la variable): desaparecen los botones y se apagan los endpoints de demo.
