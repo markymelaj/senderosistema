@@ -263,7 +263,7 @@ function render() {
 }
 
 function login() {
-  const demo = config.demoEnabled ? `<div class="demo-box"><button class="btn secondary full" type="button" data-demo-setup>Preparar demo local</button><p>Disponible solo en un entorno de demostración.</p></div>` : '';
+  const demo = config.demoEnabled ? `<div class="demo-box"><p>Entrá con un clic, sin escribir nada:</p><div class="demo-grid"><button type="button" data-demo-login="direccion@senderos.demo"><strong>Dirección</strong><span>Vista completa del sistema</span></button><button type="button" data-demo-login="profesional@senderos.demo"><strong>Profesional</strong><span>Agenda, pacientes y clínica</span></button><button type="button" data-demo-login="auditoria@senderos.demo"><strong>Auditoría</strong><span>Trazabilidad, sin acceso clínico</span></button></div><p>La cuenta de paciente se usa desde el portal.</p></div>` : '';
   return `<main class="login-wrap"><section class="login-card"><img src="../assets/logo-senderos.png" alt=""><h1>Sistema interno</h1><p>Acceso seguro para equipos clínicos, administrativos y de dirección.</p><form id="loginForm" class="form"><label class="field">Email<input name="email" type="email" required autocomplete="email"></label><label class="field">Contraseña<input name="password" type="password" required autocomplete="current-password"></label><button class="btn primary">Ingresar</button></form>${demo}<a class="back-link" href="/">Volver a la web</a></section></main>`;
 }
 function shell(content) {
@@ -348,8 +348,16 @@ function auditTab() {
 }
 
 function bindLogin() {
-  document.getElementById('loginForm')?.addEventListener('submit',async event=>{event.preventDefault();const data=new FormData(event.currentTarget);const {error}=await sb.auth.signInWithPassword({email:data.get('email'),password:data.get('password')});if(error){app.innerHTML=login();bindLogin();}});
-  document.querySelector('[data-demo-setup]')?.addEventListener('click',async()=>{const response=await fetch('/api/init-demo-users',{method:'POST'});const data=await response.json();if(!response.ok) alert(data.error||'No se pudo preparar la demo.');else alert('Demo preparada.');});
+  document.getElementById('loginForm')?.addEventListener('submit',async event=>{event.preventDefault();const data=new FormData(event.currentTarget);const {error}=await sb.auth.signInWithPassword({email:data.get('email'),password:data.get('password')});if(error){app.innerHTML=login();bindLogin();alert('No se pudo iniciar sesión. Revisá el email y la contraseña.');}});
+  document.querySelectorAll('[data-demo-login]').forEach(button=>button.addEventListener('click',async()=>{
+    const email=button.dataset.demoLogin;const prev=button.innerHTML;button.disabled=true;button.innerHTML='<strong>Ingresando…</strong>';
+    try{
+      const response=await fetch('/api/init-demo-users',{method:'POST'});
+      if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||'No se pudo preparar la demo.');}
+      const {error}=await sb.auth.signInWithPassword({email,password:'Senderos2026!'});
+      if(error)throw error;
+    }catch(error){alert(error.message||'No se pudo ingresar.');button.disabled=false;button.innerHTML=prev;}
+  }));
 }
 function bindBase() {
   document.querySelectorAll('[data-tab]').forEach(button=>button.addEventListener('click',()=>{activeTab=button.dataset.tab;render();}));

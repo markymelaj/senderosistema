@@ -102,7 +102,7 @@ function render(){
   root.innerHTML=shell();bind();maybeShowWelcome();
 }
 function login(){
-  const demo=config.demoEnabled?'<p class="muted">La demo solo está habilitada en ambientes de prueba.</p>':'';
+  const demo=config.demoEnabled?`<div class="demo-box"><p>Entrá con un clic a la vista de la persona:</p><div class="demo-grid"><button type="button" data-demo-login="paciente@senderos.demo"><strong>Paciente</strong><span>Turnos, documentos y comunicados</span></button></div></div>`:'';
   return `<main class="login"><section class="login-card"><img src="../assets/logo-senderos.png" alt=""><h1>Portal seguro</h1><p>Turnos, documentos solicitados y comunicados autorizados por la clínica.</p><form id="login" class="form"><label class="field">Email<input name="email" type="email" required></label><label class="field">Contraseña<input name="password" type="password" required></label><button class="btn primary">Ingresar</button></form>${demo}<a class="back-link" href="/">Volver a la web</a></section></main>`;
 }
 function shell(){
@@ -122,7 +122,18 @@ function messages(){
   return `<div class="list">${state.messages.map(item=>`<button class="item" data-read="${item.id}"><div><strong>${esc(item.communications?.title||'Comunicado')}</strong><small>${esc(item.communications?.body||'')}</small></div><span>${item.read_at?'Leído':'Nuevo'}</span></button>`).join('')}</div>`;
 }
 function message(text,type=''){const el=document.getElementById('msg');if(el)el.innerHTML=`<div class="notice ${type==='error'?'error':''}">${esc(text)}</div>`;}
-function bindLogin(){document.getElementById('login')?.addEventListener('submit',async event=>{event.preventDefault();const data=new FormData(event.currentTarget);const {error}=await sb.auth.signInWithPassword({email:data.get('email'),password:data.get('password')});if(error){root.innerHTML=login();bindLogin();}});}
+function bindLogin(){
+  document.getElementById('login')?.addEventListener('submit',async event=>{event.preventDefault();const data=new FormData(event.currentTarget);const {error}=await sb.auth.signInWithPassword({email:data.get('email'),password:data.get('password')});if(error){root.innerHTML=login();bindLogin();alert('No se pudo iniciar sesión. Revisá el email y la contraseña.');}});
+  document.querySelectorAll('[data-demo-login]').forEach(button=>button.addEventListener('click',async()=>{
+    const email=button.dataset.demoLogin;const prev=button.innerHTML;button.disabled=true;button.innerHTML='<strong>Ingresando…</strong>';
+    try{
+      const response=await fetch('/api/init-demo-users',{method:'POST'});
+      if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||'No se pudo preparar la demo.');}
+      const {error}=await sb.auth.signInWithPassword({email,password:'Senderos2026!'});
+      if(error)throw error;
+    }catch(error){alert(error.message||'No se pudo ingresar.');button.disabled=false;button.innerHTML=prev;}
+  }));
+}
 function bind(){
   document.getElementById('logout')?.addEventListener('click',()=>sb.auth.signOut());
   document.querySelectorAll('[data-help-open]').forEach(button=>button.addEventListener('click',openHelp));
