@@ -25,11 +25,17 @@ ENABLE_DEMO_SETUP=true
 Ejecutar en este orden:
 
 1. `supabase/sql/001_schema.sql`
-2. `supabase/sql/002_seed_demo.sql`
+2. `supabase/sql/002_seed_demo.sql` (deja lista la ficha de la organización)
+3. `supabase/sql/004_operational_hardening.sql`
+4. `supabase/sql/005_finalize_hardening.sql`
+5. `supabase/sql/006_portal_document_scopes.sql`
+6. `supabase/sql/007_demo_reset.sql` (define las funciones de demo y **carga la demostración completa**, incluidas las finanzas)
 
-Para borrar los datos de prueba antes de iniciar la operación real:
+> El archivo `007` es el que siembra los datos de ejemplo con `seed_demo_data()`. Debe ejecutarse después de `004`, porque la demo de pagos usa tablas creadas en ese archivo.
 
-3. `supabase/sql/003_cleanup_demo.sql`
+Para borrar los datos de ejemplo antes de iniciar la operación real:
+
+7. `supabase/sql/003_cleanup_demo.sql` (llama a `cleanup_demo_data()` y retira todo lo marcado como demo). Luego eliminar las cuentas `@senderos.demo` desde *Authentication → Users* y desactivar `ENABLE_DEMO_SETUP`.
 
 ## Accesos demo
 
@@ -48,11 +54,26 @@ Después de ejecutar los SQL y desplegar en Vercel:
 
 El mismo botón está disponible en `/portal/` para facilitar la presentación.
 
+## Guía en pantalla y mini guía PDF
+
+- Al ingresar por primera vez con cada rol se muestra una **bienvenida** con los primeros pasos de ese perfil (se recuerda por rol y no vuelve a aparecer).
+- El botón **Guía** (arriba a la derecha y en el pie del menú lateral) abre en cualquier momento un panel con los pasos del rol activo.
+- Desde ese panel se puede **descargar la mini guía** en PDF (`/assets/guia-senderos.pdf`): una recorrida de 3 páginas pensada para el equipo y la dirección.
+- El portal de la persona y su familia también incluye su propia guía y el mismo PDF.
+
+## Restaurar la demostración
+
+Para volver la demo al estado de ejemplo antes o después de una presentación:
+
+- Ingresar como **Dirección** y presionar **Restaurar demo** (aparece solo con `ENABLE_DEMO_SETUP` activo).
+- El sistema elimina lo cargado durante la prueba, vuelve a sembrar las 4 personas, la agenda, la historia clínica, los documentos y las finanzas de ejemplo, y recrea los accesos `@senderos.demo`.
+- Es una operación segura: solo toca datos de ejemplo, nunca información real que se haya cargado aparte.
+
 ## Qué datos demo quedan cargados
 
 - Programas: prevención, orientación/tratamiento, acompañamiento familiar, reinserción social/laboral y programa online.
 - Profesionales: psiquiatría, psicología, trabajo social, asistencia terapéutica, nutrición, musicoterapia, educación física, asesoría legal y voluntariado.
-- Pacientes ficticios con turnos, programas, documentos, una solicitud de portal y movimientos administrativos de prueba.
+- Cuatro personas acompañadas (ejemplo) con turnos, programas, historia clínica, un documento liberado al portal, una solicitud de portal y finanzas de ejemplo (un cargo con un pago parcial conciliado).
 
 ## Operación desde el sistema
 

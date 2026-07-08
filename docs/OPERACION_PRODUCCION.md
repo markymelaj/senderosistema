@@ -2,7 +2,7 @@
 
 ## Instalación
 
-Ejecutar, en este orden, los SQL `001_schema.sql`, `002_seed_demo.sql` (solo demo), `004_operational_hardening.sql` y `005_finalize_hardening.sql`. En producción, limpiar la demo con `003_cleanup_demo.sql` y dejar `ENABLE_DEMO_SETUP=false`.
+Ejecutar, en este orden, los SQL `001_schema.sql`, `002_seed_demo.sql`, `004_operational_hardening.sql`, `005_finalize_hardening.sql`, `006_portal_document_scopes.sql` y `007_demo_reset.sql`. El archivo `007` define las funciones de demostración y carga los datos de ejemplo (incluidas las finanzas). En producción, limpiar la demo con `003_cleanup_demo.sql`, eliminar las cuentas `@senderos.demo` y dejar `ENABLE_DEMO_SETUP=false`. Dirección puede restaurar la demo al estado inicial con el botón **Restaurar demo** (endpoint `/api/reset-demo`, disponible solo fuera de producción).
 
 ## Primer administrador
 

@@ -8,6 +8,62 @@ function tag(value){return `<span class="tag">${esc(value||'-')}</span>`;}
 function table(headers,rows){return rows.length?`<div class="table-wrap"><table><thead><tr>${headers.map(item=>`<th>${item}</th>`).join('')}</tr></thead><tbody>${rows.map(row=>`<tr>${row.map(cell=>`<td>${cell??'-'}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`:'<div class="empty">Sin registros</div>';}
 function patientName(patient){return patient?`${patient.first_name||''} ${patient.last_name||''}`.trim():'-';}
 
+// ---------------------------------------------------------------
+// Guía in-app del portal (paciente / familiar autorizado)
+// ---------------------------------------------------------------
+const PORTAL_GUIDES = {
+  patient:{ title:'Tu portal, paso a paso',
+    intro:'Acá ves tus turnos, descargás los documentos que el equipo habilita y subís lo que te piden. No se muestran evoluciones ni notas clínicas.',
+    steps:[
+      ['Revisá tus turnos','En la tarjeta de turnos ves fecha, tipo y profesional de cada encuentro.'],
+      ['Descargá tus documentos','Los documentos que el equipo libera aparecen listos para descargar.'],
+      ['Subí lo que te solicitan','Si hay documentación pendiente, adjuntás el archivo desde “Documentos solicitados”.'],
+      ['Escribí al equipo','Con “Nueva solicitud” pedís un turno, una corrección o hacés una consulta.']
+    ]},
+  family:{ title:'Portal para familiares',
+    intro:'Como familiar autorizado acompañás el proceso: consultás turnos, documentos habilitados y comunicados de la persona vinculada.',
+    steps:[
+      ['Elegí a la persona','Si acompañás a más de una, la seleccionás arriba para ver su información.'],
+      ['Seguí los turnos','Consultás los próximos encuentros y su estado.'],
+      ['Colaborá con la documentación','Según la autorización, podés ver o subir los documentos solicitados.'],
+      ['Mantené el contacto','Enviás solicitudes y leés los comunicados que habilita la clínica.']
+    ]}
+};
+function portalGuide(){ return PORTAL_GUIDES[profile?.account_kind==='family'?'family':'patient']; }
+function helpPanelHtml(){
+  const g=portalGuide();
+  const steps=g.steps.map((s,i)=>`<div class="help-step"><span class="n">${i+1}</span><h4>${esc(s[0])}</h4><p>${esc(s[1])}</p></div>`).join('');
+  return `<div class="help-overlay" data-help-overlay></div><aside class="help-panel" id="helpPanel" aria-label="Guía del portal">
+    <div class="help-head"><div><p class="eyebrow">Guía del portal</p><h2>${esc(g.title)}</h2></div><button class="help-close" data-help-close aria-label="Cerrar">&times;</button></div>
+    <div class="help-body"><p class="help-intro">${esc(g.intro)}</p>${steps}</div>
+    <div class="help-foot"><a class="btn secondary full" href="/assets/guia-senderos.pdf" target="_blank" rel="noopener">Descargar mini guía (PDF)</a><p class="help-cred">Fundación Senderos de Libertad</p></div>
+  </aside>`;
+}
+function welcomeModalHtml(){
+  const g=portalGuide();
+  const bullets=g.steps.slice(0,3).map(s=>`<li>${esc(s[0])}</li>`).join('');
+  return `<div class="modal-overlay" id="welcomeModal"><div class="modal">
+    <div class="modal-top"><p class="eyebrow">Te damos la bienvenida</p><h2>${esc(g.title)}</h2></div>
+    <div class="modal-body"><p>${esc(g.intro)}</p><ul class="modal-list">${bullets}</ul>
+    <p class="muted">Podés volver a abrir esta guía desde el botón <strong>Guía</strong>.</p></div>
+    <div class="modal-foot"><button class="btn secondary" data-welcome-close>Explorar</button><button class="btn primary" data-welcome-guide>Ver la guía</button></div>
+  </div></div>`;
+}
+function welcomeKey(){ return `senderos_portal_welcome_${profile?.account_kind||'x'}`; }
+function maybeShowWelcome(){
+  try{ if(localStorage.getItem(welcomeKey()))return; }catch(e){}
+  const host=document.getElementById('modalHost'); if(!host)return;
+  host.innerHTML=welcomeModalHtml();
+  const overlay=document.getElementById('welcomeModal');
+  requestAnimationFrame(()=>overlay.classList.add('open'));
+  const dismiss=()=>{ try{localStorage.setItem(welcomeKey(),'1');}catch(e){} overlay.classList.remove('open'); setTimeout(()=>host.innerHTML='',200); };
+  overlay.querySelector('[data-welcome-close]').addEventListener('click',dismiss);
+  overlay.addEventListener('click',e=>{ if(e.target===overlay)dismiss(); });
+  overlay.querySelector('[data-welcome-guide]').addEventListener('click',()=>{ dismiss(); openHelp(); });
+}
+function openHelp(){ document.getElementById('helpPanel')?.classList.add('open'); document.querySelector('[data-help-overlay]')?.classList.add('open'); }
+function closeHelp(){ document.getElementById('helpPanel')?.classList.remove('open'); document.querySelector('[data-help-overlay]')?.classList.remove('open'); }
+
 init();
 async function init(){
   try{
@@ -43,7 +99,7 @@ function render(){
   if(!session){root.innerHTML=login();bindLogin();return;}
   if(!profile){root.innerHTML='<main class="login"><section class="login-card"><p>Cuenta sin perfil de portal.</p></section></main>';return;}
   if(profile.account_kind==='internal'){window.location.href='/sistema/';return;}
-  root.innerHTML=shell();bind();
+  root.innerHTML=shell();bind();maybeShowWelcome();
 }
 function login(){
   const demo=config.demoEnabled?'<p class="muted">La demo solo está habilitada en ambientes de prueba.</p>':'';
@@ -51,7 +107,7 @@ function login(){
 }
 function shell(){
   const patient=state.patients.find(item=>item.id===selectedPatientId);
-  return `<main class="wrap"><header class="header"><div class="brand"><img src="../assets/logo-senderos.png" alt=""><div><strong>Senderos de Libertad</strong><small>Portal seguro · ${profile.account_kind==='family'?'familiar autorizado':'paciente'}</small></div></div><button class="btn secondary" id="logout">Salir</button></header><section class="hero"><h1>${esc(profile.full_name||'Portal')}</h1><p>Solo se muestra información habilitada para esta cuenta. No se publican evoluciones ni notas clínicas.</p>${state.patients.length>1?`<label class="field">Persona vinculada<select id="patientSelect">${state.patients.map(item=>`<option value="${item.id}" ${item.id===selectedPatientId?'selected':''}>${esc(patientName(item))}</option>`).join('')}</select></label>`:`<p>${esc(patientName(patient))}</p>`}</section><div id="msg"></div><section class="grid"><div class="card"><h2>Turnos</h2>${table(['Fecha','Tipo','Profesional','Estado'],state.appointments.map(item=>[dateTime(item.start_at),esc(item.appointment_types?.name||'-'),esc(item.professionals?.full_name||'-'),tag(item.status)]))}</div><div class="card"><h2>Documentos disponibles</h2>${documents()}</div><div class="card"><h2>Documentos solicitados</h2>${requirements()}</div><div class="card"><h2>Nueva solicitud</h2><form id="requestForm" class="form"><label class="field">Tipo<select name="request_type"><option value="turno">Turno</option><option value="documento">Documento</option><option value="datos">Corrección de datos</option><option value="otro">Otro</option></select></label><label class="field">Asunto<input name="subject" required></label><label class="field">Mensaje<textarea name="message" rows="5" required></textarea></label><button class="btn primary">Enviar solicitud</button></form></div><div class="card"><h2>Solicitudes enviadas</h2>${table(['Fecha','Tipo','Asunto','Estado'],state.requests.map(item=>[dateTime(item.created_at),esc(item.request_type),esc(item.subject),tag(item.status)]))}</div><div class="card"><h2>Comunicados</h2>${messages()}</div></section><p class="footer-note">Ante una situación de riesgo inmediato, comuníquese con los servicios de emergencia de su zona.</p></main>`;
+  return `<main class="wrap"><header class="header"><div class="brand"><img src="../assets/logo-senderos.png" alt=""><div><strong>Senderos de Libertad</strong><small>Portal seguro · ${profile.account_kind==='family'?'familiar autorizado':'paciente'}</small></div></div><div class="header-actions"><button class="btn secondary" data-help-open>Guía</button><button class="btn secondary" id="logout">Salir</button></div></header><section class="hero"><h1>${esc(profile.full_name||'Portal')}</h1><p>Solo se muestra información habilitada para esta cuenta. No se publican evoluciones ni notas clínicas.</p>${state.patients.length>1?`<label class="field">Persona vinculada<select id="patientSelect">${state.patients.map(item=>`<option value="${item.id}" ${item.id===selectedPatientId?'selected':''}>${esc(patientName(item))}</option>`).join('')}</select></label>`:`<p>${esc(patientName(patient))}</p>`}</section><div id="msg"></div><section class="grid"><div class="card"><h2>Turnos</h2>${table(['Fecha','Tipo','Profesional','Estado'],state.appointments.map(item=>[dateTime(item.start_at),esc(item.appointment_types?.name||'-'),esc(item.professionals?.full_name||'-'),tag(item.status)]))}</div><div class="card"><h2>Documentos disponibles</h2>${documents()}</div><div class="card"><h2>Documentos solicitados</h2>${requirements()}</div><div class="card"><h2>Nueva solicitud</h2><form id="requestForm" class="form"><label class="field">Tipo<select name="request_type"><option value="turno">Turno</option><option value="documento">Documento</option><option value="datos">Corrección de datos</option><option value="otro">Otro</option></select></label><label class="field">Asunto<input name="subject" required></label><label class="field">Mensaje<textarea name="message" rows="5" required></textarea></label><button class="btn primary">Enviar solicitud</button></form></div><div class="card"><h2>Solicitudes enviadas</h2>${table(['Fecha','Tipo','Asunto','Estado'],state.requests.map(item=>[dateTime(item.created_at),esc(item.request_type),esc(item.subject),tag(item.status)]))}</div><div class="card"><h2>Comunicados</h2>${messages()}</div></section><p class="footer-note">Ante una situación de riesgo inmediato, comuníquese con los servicios de emergencia de su zona.</p></main>${helpPanelHtml()}<div id="modalHost"></div>`;
 }
 function documents(){
   if(!state.documents.length)return '<div class="empty">Sin documentos liberados</div>';
@@ -69,6 +125,9 @@ function message(text,type=''){const el=document.getElementById('msg');if(el)el.
 function bindLogin(){document.getElementById('login')?.addEventListener('submit',async event=>{event.preventDefault();const data=new FormData(event.currentTarget);const {error}=await sb.auth.signInWithPassword({email:data.get('email'),password:data.get('password')});if(error){root.innerHTML=login();bindLogin();}});}
 function bind(){
   document.getElementById('logout')?.addEventListener('click',()=>sb.auth.signOut());
+  document.querySelectorAll('[data-help-open]').forEach(button=>button.addEventListener('click',openHelp));
+  document.querySelector('[data-help-close]')?.addEventListener('click',closeHelp);
+  document.querySelector('[data-help-overlay]')?.addEventListener('click',closeHelp);
   document.getElementById('patientSelect')?.addEventListener('change',async event=>{selectedPatientId=event.target.value;await load();render();});
   document.getElementById('requestForm')?.addEventListener('submit',async event=>{event.preventDefault();const data=new FormData(event.currentTarget);const {error}=await sb.from('portal_requests').insert({patient_id:selectedPatientId,request_type:data.get('request_type'),subject:data.get('subject'),message:data.get('message'),requester_user_id:session.user.id});if(error)return message(error.message,'error');await load();render();message('Solicitud enviada.');});
   document.querySelectorAll('[data-download]').forEach(button=>button.addEventListener('click',()=>downloadDocument(button.dataset.download)));
